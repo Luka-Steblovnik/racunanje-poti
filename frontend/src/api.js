@@ -1,5 +1,5 @@
 // V produkciji nastavi VITE_API_URL na Railway URL (brez trailing slash),
-// npr. https://kilometer-tracker-production.up.railway.app
+// npr. https://racunanje-poti-production.up.railway.app
 // Lokalno Vite proxy preusmeri /api → localhost:8000, zato BASE ostane "/api".
 const BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL
@@ -46,8 +46,17 @@ export function exportCsvUrl() {
   return `${BASE}/routes/export`;
 }
 
+// Returns { suggestions: [{id, main, sub, lat, lon}] }
+// lat/lon are null for Google Place results (need getPlace call on select)
 export async function autocomplete(q) {
   const res = await fetch(`${BASE}/autocomplete?q=${encodeURIComponent(q)}`);
-  if (!res.ok) return { features: [] };
+  if (!res.ok) return { suggestions: [] };
   return res.json();
+}
+
+// Fetch lat/lon for a Google place_id
+export async function getPlace(placeId) {
+  const res = await fetch(`${BASE}/place/${encodeURIComponent(placeId)}`);
+  if (!res.ok) return null;
+  return res.json(); // { lat, lon }
 }

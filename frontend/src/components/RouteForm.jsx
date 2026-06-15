@@ -1,66 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { autocomplete as backendAutocomplete } from "../api.js";
+import { autocomplete as backendAutocomplete, getPlace } from "../api.js";
 
-// Nominatim — only for reverse geocoding (geolocation button)
 const NOM = "https://nominatim.openstreetmap.org";
 
-// Format a Photon GeoJSON feature into { main, sub, lat, lon }
-function formatPhoton(f) {
-  const p = f.properties || {};
-  const [lon, lat] = f.geometry.coordinates;
-
-  const name    = p.name || "";
-  const street  = p.street || "";
-  const hnum    = p.housenumber || "";
-  const city    = p.city || p.town || p.village || p.county || "";
-  const postcode = p.postcode || "";
-  const state   = p.state || "";
-  const country = p.country || "";
-  const isSlovenia = country === "Slovenija" || country === "Slovenia" || p.countrycode === "SI";
-
-  let main = "";
-  const isPlace = ["city","town","village","hamlet","locality","suburb","borough","quarter","neighbourhood","municipality"].includes(p.type);
-
-  if (name && !isPlace && street) {
-    // POI with a street
-    main = `${name}, ${street}${hnum ? " " + hnum : ""}`;
-    if (city) main += `, ${city}`;
-  } else if (name && !isPlace) {
-    // POI without street
-    main = name;
-    if (city && city !== name) main += `, ${city}`;
-  } else if (street) {
-    // Street / address
-    main = hnum ? `${street} ${hnum}` : street;
-    if (city) main += `, ${city}`;
-  } else if (name) {
-    // Settlement / place name
-    main = name;
-    if (city && city !== name) main += `, ${city}`;
-  } else {
-    main = city || country;
-  }
-
-  const subParts = [postcode, state, isSlovenia ? null : country].filter(Boolean);
-  const sub = subParts.slice(0, 2).join(", ");
-
-  return { main, sub, lat, lon };
-}
-
-async function photonSearch(q) {
+async function searchPlaces(q) {
   const data = await backendAutocomplete(q);
-
-  const seen = new Set();
-  const results = [];
-  for (const f of (data.features || [])) {
-    const { main, sub, lat, lon } = formatPhoton(f);
-    const key = main.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    results.push({ id: `${lat},${lon}`, main, sub, lat, lon });
-    if (results.length >= 5) break;
-  }
-  return results;
+  return data.suggestions || [];
 }
 
 async function nominatimReverse(lat, lon) {
@@ -69,12 +14,10 @@ async function nominatimReverse(lat, lon) {
     `&format=json&addressdetails=1&accept-language=sl,en`;
   const res = await fetch(url, { headers: { "User-Agent": "KilometerTracker/1.0" } });
   const data = await res.json();
-
-  // Build a clean address string from reverse result
   const a = data.address || {};
-  const street  = a.road || a.pedestrian || a.path || "";
-  const hnum    = a.house_number || "";
-  const city    = a.city || a.town || a.village || a.municipality || "";
+  const street = a.road || a.pedestrian || a.path || "";
+  const hnum   = a.house_number || "";
+  const city   = a.city || a.town || a.village || a.municipality || "";
   if (street) return hnum ? `${street} ${hnum}, ${city}` : city ? `${street}, ${city}` : street;
   return city || data.display_name?.split(",")[0] || "";
 }
@@ -103,13 +46,15 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
     if (q.trim().length < 2) { setSuggestions([]); setOpen(false); return; }
     setSearching(true);
     try {
-      const results = await photonSearch(q);
+      const results = await searchPlaces(q);
       if (results.length > 0) {
         setSuggestions(results);
         setOpen(true);
+      } else {
+        setOpen(false);
       }
     } catch {
-      /* keep old suggestions on error */
+      /* ignore */
     } finally {
       setSearching(false);
     }
@@ -131,12 +76,22 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
     return () => document.removeEventListener("mousedown", handle);
   }, []);
 
-  function select(s) {
+  async function select(s) {
     suppressRef.current = true;
-    onChange(s.main);
-    onCoords({ lat: s.lat, lon: s.lon });
+    onChange(s.main + (s.sub ? ", " + s.sub : ""));
     setOpen(false);
     setSuggestions([]);
+
+    if (s.lat !== null && s.lat !== undefined) {
+      // Photon result — coords already known
+      onCoords({ lat: s.lat, lon: s.lon });
+    } else {
+      // Google Place — fetch coords by place_id
+      try {
+        const place = await getPlace(s.id);
+        if (place) onCoords({ lat: place.lat, lon: place.lon });
+      } catch { /* ignore */ }
+    }
   }
 
   function handleChange(e) {

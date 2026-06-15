@@ -201,9 +201,40 @@ async def get_routes():
 
 @app.get("/autocomplete")
 async def autocomplete(q: str = ""):
+    """Returns unified suggestions list. Uses Google Places if key set, else Photon."""
     if not q or len(q.strip()) < 2:
-        return {"type": "FeatureCollection", "features": []}
-    params = {"q": q, "lat": "46.1", "lon": "14.9", "zoom": "12", "limit": "7", "lang": "sl"}
+        return {"suggestions": []}
+
+    if GOOGLE_MAPS_API_KEY:
+        params = {
+            "input": q,
+            "key": GOOGLE_MAPS_API_KEY,
+            "language": "sl",
+            "components": "country:si|country:hr|country:at",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.get(
+                    "https://maps.googleapis.com/maps/api/place/autocomplete/json",
+                    params=params,
+                )
+            data = r.json()
+            suggestions = []
+            for p in data.get("predictions", []):
+                sf = p.get("structured_formatting", {})
+                suggestions.append({
+                    "id": p["place_id"],
+                    "main": sf.get("main_text", p["description"]),
+                    "sub": sf.get("secondary_text", ""),
+                    "lat": None,
+                    "lon": None,
+                })
+            return {"suggestions": suggestions}
+        except Exception:
+            pass  # fall through to Photon
+
+    # Photon fallback (no API key or Google failed)
+    params = {"q": q, "lat": "46.1", "lon": "14.9", "zoom": "12", "limit": "5", "lang": "sl"}
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             r = await client.get(
@@ -211,9 +242,49 @@ async def autocomplete(q: str = ""):
                 params=params,
                 headers={"User-Agent": "KilometerTracker/1.0"},
             )
-        return r.json()
+        data = r.json()
+        suggestions = []
+        seen = set()
+        for f in data.get("features", []):
+            p = f.get("properties", {})
+            name = p.get("name") or p.get("street") or p.get("city") or ""
+            city = p.get("city") or p.get("town") or p.get("village") or ""
+            country = p.get("country") or ""
+            lon, lat = f["geometry"]["coordinates"]
+            main = name
+            if city and city != name:
+                main += f", {city}"
+            sub_parts = [s for s in [p.get("postcode", ""), country] if s]
+            sub = ", ".join(sub_parts[:2])
+            key = main.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            suggestions.append({"id": f"{lat},{lon}", "main": main, "sub": sub, "lat": lat, "lon": lon})
+            if len(suggestions) >= 5:
+                break
+        return {"suggestions": suggestions}
     except Exception:
-        return {"type": "FeatureCollection", "features": []}
+        return {"suggestions": []}
+
+
+@app.get("/place/{place_id}")
+async def get_place(place_id: str):
+    """Fetch lat/lon for a Google Place ID."""
+    if not GOOGLE_MAPS_API_KEY:
+        raise HTTPException(400, "API key not configured")
+    params = {"place_id": place_id, "fields": "geometry", "key": GOOGLE_MAPS_API_KEY}
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(
+                "https://maps.googleapis.com/maps/api/place/details/json",
+                params=params,
+            )
+        data = r.json()
+        loc = data["result"]["geometry"]["location"]
+        return {"lat": loc["lat"], "lon": loc["lng"]}
+    except Exception:
+        raise HTTPException(500, "Napaka pri pridobivanju koordinat")
 
 
 @app.get("/routes/export")
