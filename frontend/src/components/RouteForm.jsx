@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { autocomplete as backendAutocomplete } from "../api.js";
 
-// Photon (Komoot) — designed for autocomplete, OSM data, no API key, CORS ok
-const PHOTON = "https://photon.komoot.io";
-// Nominatim — fallback for reverse geocoding
+// Nominatim — only for reverse geocoding (geolocation button)
 const NOM = "https://nominatim.openstreetmap.org";
 
 // Format a Photon GeoJSON feature into { main, sub, lat, lon }
@@ -49,19 +48,15 @@ function formatPhoton(f) {
 }
 
 async function photonSearch(q) {
-  const url =
-    `${PHOTON}/api/?q=${encodeURIComponent(q)}` +
-    `&lat=46.1&lon=14.9&zoom=12&limit=7&lang=sl`;
-  const res = await fetch(url);
-  const data = await res.json();
+  const data = await backendAutocomplete(q);
 
   const seen = new Set();
   const results = [];
   for (const f of (data.features || [])) {
     const p = f.properties || {};
-    // Prefer Slovenia + neighbours; skip distant countries unless explicitly searched
-    const cc = (p.countrycode || "").toUpperCase();
-    if (!["SI","HR","AT","IT","HU"].includes(cc)) continue;
+    // Prefer Slovenia + neighbours
+    const cc = (p.countrycode || "").toLowerCase();
+    if (!["si","hr","at","it","hu"].includes(cc)) continue;
 
     const { main, sub, lat, lon } = formatPhoton(f);
     const key = main.toLowerCase();

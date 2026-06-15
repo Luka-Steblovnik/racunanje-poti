@@ -45,3 +45,9 @@ export async function fetchRoutes() {
 export function exportCsvUrl() {
   return `${BASE}/routes/export`;
 }
+
+export async function autocomplete(q) {
+  const res = await fetch(`${BASE}/autocomplete?q=${encodeURIComponent(q)}`);
+  if (!res.ok) return { features: [] };
+  return res.json();
+}

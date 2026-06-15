@@ -199,6 +199,23 @@ async def get_routes():
     return {"routes": routes, "total_km": total_km}
 
 
+@app.get("/autocomplete")
+async def autocomplete(q: str = ""):
+    if not q or len(q.strip()) < 2:
+        return {"type": "FeatureCollection", "features": []}
+    params = {"q": q, "lat": "46.1", "lon": "14.9", "zoom": "12", "limit": "7", "lang": "sl"}
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(
+                "https://photon.komoot.io/api/",
+                params=params,
+                headers={"User-Agent": "KilometerTracker/1.0"},
+            )
+        return r.json()
+    except Exception:
+        return {"type": "FeatureCollection", "features": []}
+
+
 @app.get("/routes/export")
 async def export_csv():
     routes = load_routes()
