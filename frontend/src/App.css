@@ -120,6 +120,18 @@ body {
 .ac-geo-btn:hover:not(:disabled) { background: rgba(37,99,235,.1); }
 .ac-geo-btn:disabled { opacity: .4; cursor: not-allowed; }
 
+.ac-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(37,99,235,.3);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: ac-spin .7s linear infinite;
+}
+
+@keyframes ac-spin { to { transform: rotate(360deg); } }
+
 .ac-loading {
   font-size: .8rem;
   color: var(--text-muted);
