@@ -83,11 +83,14 @@ def fmt_duration(seconds: int) -> str:
 async def calc_google(origin: str, destination: str) -> tuple[float, str]:
     """Returns (distance_km, duration_str). Raises ValueError on bad input."""
     url = "https://maps.googleapis.com/maps/api/directions/json"
+    import time as _time
     params = {
         "origin": origin,
         "destination": destination,
         "key": GOOGLE_MAPS_API_KEY,
         "language": "sl",
+        "departure_time": int(_time.time()),  # promet v realnem času
+        "traffic_model": "best_guess",
     }
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(url, params=params)
@@ -109,7 +112,9 @@ async def calc_google(origin: str, destination: str) -> tuple[float, str]:
 
     leg = data["routes"][0]["legs"][0]
     km = round(leg["distance"]["value"] / 1000, 1)
-    dur = fmt_duration(leg["duration"]["value"])
+    # duration_in_traffic = čas z gnevčo, duration = brez (fallback)
+    traffic = leg.get("duration_in_traffic") or leg["duration"]
+    dur = fmt_duration(traffic["value"])
     return km, dur
 
 
