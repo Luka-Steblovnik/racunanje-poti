@@ -52,16 +52,26 @@ async function nominatimSearch(q) {
   const res = await fetch(url, { headers: { "User-Agent": "KilometerTracker/1.0" } });
   const data = await res.json();
 
-  // Only keep results where at least one query word appears in the formatted label or display_name
+  // Obdrži samo rezultate kjer vsaj ena beseda iz poizvedbe nastopa v
+  // imenu kraja, ulice ali mesta — NE v celotnem display_name (ki vsebuje
+  // vse naslovne komponente in bi "ulica" ujel npr. Donja Kupčina).
   const words = norm(q).split(/\s+/).filter(w => w.length >= 2);
 
   const seen = new Set();
   return data.filter(s => {
-    const { main } = formatResult(s);
-    const haystack = norm(main) + " " + norm(s.display_name);
-    const relevant = words.some(w => haystack.includes(w));
+    const a = s.address || {};
+    // Zgradimo iskalni niz samo iz relevantnih polj (ne display_name)
+    const nameFields = [
+      a.amenity, a.shop, a.tourism, a.leisure, a.historic, a.office,
+      a.road, a.pedestrian, a.path, a.footway,
+      a.city, a.town, a.village, a.municipality,
+      s.name,
+    ].filter(Boolean).map(norm).join(" ");
+
+    const relevant = words.some(w => nameFields.includes(w));
     if (!relevant) return false;
 
+    const { main } = formatResult(s);
     const key = norm(main);
     if (seen.has(key)) return false;
     seen.add(key);
