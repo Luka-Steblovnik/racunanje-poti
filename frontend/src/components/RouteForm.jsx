@@ -89,10 +89,13 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
     setSearching(true);
     try {
       const results = await nominatimSearch(q);
-      setSuggestions(results);
-      setOpen(results.length > 0);
+      if (results.length > 0) {
+        setSuggestions(results);
+        setOpen(true);
+      }
+      // če ni zadetkov, obdrži stare predloge vidne (ne zapri dropdowna)
     } catch {
-      setSuggestions([]);
+      /* ob napaki pusti stare predloge */
     } finally {
       setSearching(false);
     }
@@ -187,7 +190,9 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
                 key={s.place_id}
                 className="ac-item"
                 role="option"
-                onMouseDown={() => select(s)}
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()} // prepreči blur inputa
+                onClick={() => select(s)}
               >
                 <span className="ac-pin">📍</span>
                 <div className="ac-text">
