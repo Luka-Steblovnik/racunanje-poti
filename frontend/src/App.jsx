@@ -35,7 +35,7 @@ export default function App() {
     loadHistory();
   }, [loadHistory]);
 
-  async function handleCalculate(o, d) {
+  async function handleCalculate(o, d, originCoords, destCoords) {
     setOrigin(o);
     setDestination(d);
     setResult(null);
@@ -43,7 +43,7 @@ export default function App() {
     setCalcError(null);
     setCalculating(true);
     try {
-      const data = await calculateRoute(o, d);
+      const data = await calculateRoute(o, d, originCoords, destCoords);
       setResult(data);
     } catch (e) {
       setCalcError(e.message);

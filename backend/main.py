@@ -130,10 +130,24 @@ async def geocode_nominatim(address: str) -> tuple[float, float]:
     return float(results[0]["lat"]), float(results[0]["lon"])
 
 
-async def calc_osrm(origin: str, destination: str) -> tuple[float, str]:
+async def calc_osrm(
+    origin: str,
+    destination: str,
+    origin_lat: float | None = None,
+    origin_lon: float | None = None,
+    dest_lat: float | None = None,
+    dest_lon: float | None = None,
+) -> tuple[float, str]:
     """Returns (distance_km, duration_str) using OSRM public demo server."""
-    lat1, lon1 = await geocode_nominatim(origin)
-    lat2, lon2 = await geocode_nominatim(destination)
+    if origin_lat is not None and origin_lon is not None:
+        lat1, lon1 = origin_lat, origin_lon
+    else:
+        lat1, lon1 = await geocode_nominatim(origin)
+
+    if dest_lat is not None and dest_lon is not None:
+        lat2, lon2 = dest_lat, dest_lon
+    else:
+        lat2, lon2 = await geocode_nominatim(destination)
 
     url = (
         f"http://router.project-osrm.org/route/v1/driving/"
@@ -156,14 +170,21 @@ async def calc_osrm(origin: str, destination: str) -> tuple[float, str]:
 # Unified calculate
 # ---------------------------------------------------------------------------
 
-async def calculate_route(origin: str, destination: str) -> dict:
+async def calculate_route(
+    origin: str,
+    destination: str,
+    origin_lat: float | None = None,
+    origin_lon: float | None = None,
+    dest_lat: float | None = None,
+    dest_lon: float | None = None,
+) -> dict:
     """Try Google Maps first; fall back to OSRM."""
     if GOOGLE_MAPS_API_KEY:
         km, dur = await calc_google(origin, destination)
         source = "google"
     else:
         # OSRM fallback — clearly marked as per spec
-        km, dur = await calc_osrm(origin, destination)
+        km, dur = await calc_osrm(origin, destination, origin_lat, origin_lon, dest_lat, dest_lon)
         source = "osrm"  # fallback: no GOOGLE_MAPS_API_KEY set
 
     maps_url = (
@@ -181,6 +202,10 @@ async def calculate_route(origin: str, destination: str) -> dict:
 class CalculateRequest(BaseModel):
     origin: str
     destination: str
+    origin_lat: float | None = None
+    origin_lon: float | None = None
+    dest_lat: float | None = None
+    dest_lon: float | None = None
 
 
 class SaveRequest(BaseModel):
@@ -200,7 +225,10 @@ async def calculate(req: CalculateRequest):
     if not req.origin.strip() or not req.destination.strip():
         raise HTTPException(400, "Izhodišče in cilj ne smeta biti prazna.")
     try:
-        result = await calculate_route(req.origin.strip(), req.destination.strip())
+        result = await calculate_route(
+            req.origin.strip(), req.destination.strip(),
+            req.origin_lat, req.origin_lon, req.dest_lat, req.dest_lon,
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
     except httpx.TimeoutException:

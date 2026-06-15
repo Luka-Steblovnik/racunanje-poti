@@ -24,13 +24,13 @@ function formatAddress(s) {
   return { main, sub };
 }
 
-function AddressInput({ id, label, value, onChange, disabled, placeholder }) {
+function AddressInput({ id, label, value, onChange, onCoords, disabled, placeholder }) {
   const [suggestions, setSuggestions] = useState([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef(null);
   const containerRef = useRef(null);
-  const suppressRef = useRef(false); // prevent fetch after selecting suggestion
+  const suppressRef = useRef(false);
 
   const search = useCallback(async (q) => {
     if (q.length < 3) { setSuggestions([]); setOpen(false); return; }
@@ -55,7 +55,6 @@ function AddressInput({ id, label, value, onChange, disabled, placeholder }) {
     return () => clearTimeout(debounceRef.current);
   }, [value, search]);
 
-  // close on click outside
   useEffect(() => {
     function handleClick(e) {
       if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false);
@@ -68,8 +67,15 @@ function AddressInput({ id, label, value, onChange, disabled, placeholder }) {
     const { main } = formatAddress(s);
     suppressRef.current = true;
     onChange(main);
+    // Pass lat/lon so backend can skip re-geocoding
+    onCoords({ lat: parseFloat(s.lat), lon: parseFloat(s.lon) });
     setOpen(false);
     setSuggestions([]);
+  }
+
+  function handleChange(e) {
+    onChange(e.target.value);
+    onCoords(null); // user edited manually — invalidate stored coords
   }
 
   return (
@@ -80,7 +86,7 @@ function AddressInput({ id, label, value, onChange, disabled, placeholder }) {
         type="text"
         placeholder={placeholder}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={handleChange}
         onFocus={() => suggestions.length > 0 && setOpen(true)}
         disabled={disabled}
         autoComplete="off"
@@ -114,13 +120,15 @@ function AddressInput({ id, label, value, onChange, disabled, placeholder }) {
 export default function RouteForm({ onCalculate, loading }) {
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
+  const [originCoords, setOriginCoords] = useState(null);
+  const [destCoords, setDestCoords] = useState(null);
 
   function handleSubmit(e) {
     e.preventDefault();
     const o = origin.trim();
     const d = destination.trim();
     if (!o || !d) return;
-    onCalculate(o, d);
+    onCalculate(o, d, originCoords, destCoords);
   }
 
   return (
@@ -131,6 +139,7 @@ export default function RouteForm({ onCalculate, loading }) {
         placeholder="npr. Ljubljana, Kongresni trg"
         value={origin}
         onChange={setOrigin}
+        onCoords={setOriginCoords}
         disabled={loading}
       />
       <AddressInput
@@ -139,6 +148,7 @@ export default function RouteForm({ onCalculate, loading }) {
         placeholder="npr. Maribor, Glavni trg"
         value={destination}
         onChange={setDestination}
+        onCoords={setDestCoords}
         disabled={loading}
       />
       <button

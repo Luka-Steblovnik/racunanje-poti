@@ -21,10 +21,13 @@ async function request(path, options = {}) {
   return res.json();
 }
 
-export async function calculateRoute(origin, destination) {
+export async function calculateRoute(origin, destination, originCoords, destCoords) {
+  const body = { origin, destination };
+  if (originCoords) { body.origin_lat = originCoords.lat; body.origin_lon = originCoords.lon; }
+  if (destCoords)   { body.dest_lat   = destCoords.lat;   body.dest_lon   = destCoords.lon; }
   return request("/calculate", {
     method: "POST",
-    body: JSON.stringify({ origin, destination }),
+    body: JSON.stringify(body),
   });
 }
 
