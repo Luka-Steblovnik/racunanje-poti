@@ -37,19 +37,32 @@ function formatResult(s) {
   return { main, sub };
 }
 
+// Normalize: strip diacritics, lowercase
+function norm(s) {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
 async function nominatimSearch(q) {
   const url =
     `${NOM}/search?q=${encodeURIComponent(q)}` +
-    `&format=json&limit=7&addressdetails=1` +
+    `&format=json&limit=10&addressdetails=1` +
     `&viewbox=${SLO_VIEWBOX}&bounded=0` +
+    `&countrycodes=si,hr,at,it,hu` +
     `&dedupe=1&accept-language=sl,en`;
   const res = await fetch(url, { headers: { "User-Agent": "KilometerTracker/1.0" } });
   const data = await res.json();
 
-  // Extra client-side dedupe by formatted label
+  // Only keep results where at least one query word appears in the formatted label or display_name
+  const words = norm(q).split(/\s+/).filter(w => w.length >= 2);
+
   const seen = new Set();
   return data.filter(s => {
-    const key = formatResult(s).main.toLowerCase();
+    const { main } = formatResult(s);
+    const haystack = norm(main) + " " + norm(s.display_name);
+    const relevant = words.some(w => haystack.includes(w));
+    if (!relevant) return false;
+
+    const key = norm(main);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -85,7 +98,7 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
   const suppressRef  = useRef(false);
 
   const search = useCallback(async (q) => {
-    if (q.trim().length < 2) { setSuggestions([]); setOpen(false); return; }
+    if (q.trim().length < 3) { setSuggestions([]); setOpen(false); return; }
     setSearching(true);
     try {
       const results = await nominatimSearch(q);
