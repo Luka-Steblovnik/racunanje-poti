@@ -201,39 +201,11 @@ async def get_routes():
 
 @app.get("/autocomplete")
 async def autocomplete(q: str = ""):
-    """Returns unified suggestions list. Uses Google Places if key set, else Photon."""
+    """Returns unified suggestions list via Photon (OSM)."""
     if not q or len(q.strip()) < 2:
         return {"suggestions": []}
 
-    if GOOGLE_MAPS_API_KEY:
-        params = {
-            "input": q,
-            "key": GOOGLE_MAPS_API_KEY,
-            "language": "sl",
-            "components": "country:si|country:hr|country:at",
-        }
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                r = await client.get(
-                    "https://maps.googleapis.com/maps/api/place/autocomplete/json",
-                    params=params,
-                )
-            data = r.json()
-            suggestions = []
-            for p in data.get("predictions", []):
-                sf = p.get("structured_formatting", {})
-                suggestions.append({
-                    "id": p["place_id"],
-                    "main": sf.get("main_text", p["description"]),
-                    "sub": sf.get("secondary_text", ""),
-                    "lat": None,
-                    "lon": None,
-                })
-            return {"suggestions": suggestions}
-        except Exception:
-            pass  # fall through to Photon
-
-    # Photon fallback (no API key or Google failed)
+    # Photon
     params = {"q": q, "lat": "46.1", "lon": "14.9", "zoom": "12", "limit": "5", "lang": "sl"}
     try:
         async with httpx.AsyncClient(timeout=5) as client:
