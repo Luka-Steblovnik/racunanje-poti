@@ -45,15 +45,3 @@ export async function fetchRoutes() {
 export function exportCsvUrl() {
   return `${BASE}/routes/export`;
 }
-
-export async function searchAutocomplete(q) {
-  return request(`/autocomplete?q=${encodeURIComponent(q)}`);
-}
-
-export async function getPlaceDetails(place_id) {
-  return request(`/place?place_id=${encodeURIComponent(place_id)}`);
-}
-
-export async function reverseGeocode(lat, lon) {
-  return request(`/reverse?lat=${lat}&lon=${lon}`);
-}

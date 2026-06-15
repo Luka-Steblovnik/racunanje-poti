@@ -1,5 +1,82 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { searchAutocomplete, getPlaceDetails, reverseGeocode } from "../api.js";
+
+const SLO_VIEWBOX = "13.4,46.9,16.6,45.4";
+const NOM = "https://nominatim.openstreetmap.org";
+
+function formatResult(s) {
+  const a = s.address || {};
+  const poi    = a.amenity || a.shop || a.tourism || a.leisure || a.historic || a.office;
+  const street = a.road || a.pedestrian || a.path || a.footway;
+  const num    = a.house_number;
+  const city   = a.city || a.town || a.village || a.municipality;
+  const suburb = a.suburb || a.neighbourhood || a.district;
+
+  let main = "";
+  if (poi) {
+    main = poi;
+    if (street) main += `, ${street}${num ? " " + num : ""}`;
+    if (city)   main += `, ${city}`;
+  } else if (street) {
+    main = num ? `${street} ${num}` : street;
+    if (city) main += `, ${city}`;
+  } else if (city) {
+    main = city;
+  } else {
+    main = s.display_name.split(",").slice(0, 2).map(p => p.trim()).join(", ");
+  }
+
+  const postcode = a.postcode;
+  const region   = a.county || a.state;
+  const foreign  = a.country_code && a.country_code.toUpperCase() !== "SI" ? a.country : null;
+  const subParts = [suburb, postcode, region, foreign].filter(Boolean);
+  const sub = subParts.slice(0, 3).join(", ");
+
+  return { main, sub };
+}
+
+function norm(s) {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
+async function nominatimSearch(q) {
+  const url =
+    `${NOM}/search?q=${encodeURIComponent(q)}` +
+    `&format=json&limit=10&addressdetails=1` +
+    `&viewbox=${SLO_VIEWBOX}&bounded=0` +
+    `&countrycodes=si,hr,at,it,hu` +
+    `&dedupe=1&accept-language=sl,en`;
+  const res = await fetch(url, { headers: { "User-Agent": "KilometerTracker/1.0" } });
+  const data = await res.json();
+
+  const words = norm(q).split(/\s+/).filter(w => w.length >= 2);
+  const seen = new Set();
+  return data.filter(s => {
+    const a = s.address || {};
+    const nameFields = [
+      a.amenity, a.shop, a.tourism, a.leisure, a.historic, a.office,
+      a.road, a.pedestrian, a.path, a.footway,
+      a.city, a.town, a.village, a.municipality,
+      s.name,
+    ].filter(Boolean).map(norm).join(" ");
+
+    const relevant = words.some(w => nameFields.includes(w));
+    if (!relevant) return false;
+
+    const { main } = formatResult(s);
+    const key = norm(main);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 5);
+}
+
+async function nominatimReverse(lat, lon) {
+  const url =
+    `${NOM}/reverse?lat=${lat}&lon=${lon}` +
+    `&format=json&addressdetails=1&accept-language=sl,en`;
+  const res = await fetch(url, { headers: { "User-Agent": "KilometerTracker/1.0" } });
+  return res.json();
+}
 
 function IconCrosshair() {
   return (
@@ -25,15 +102,13 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
     if (q.trim().length < 3) { setSuggestions([]); setOpen(false); return; }
     setSearching(true);
     try {
-      const data = await searchAutocomplete(q);
-      const results = data.results || [];
+      const results = await nominatimSearch(q);
       if (results.length > 0) {
         setSuggestions(results);
         setOpen(true);
       }
-      // if no results, keep old suggestions visible
     } catch {
-      /* keep old suggestions on error */
+      /* ob napaki pusti stare predloge */
     } finally {
       setSearching(false);
     }
@@ -55,25 +130,13 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
     return () => document.removeEventListener("mousedown", handle);
   }, []);
 
-  async function select(s) {
+  function select(s) {
+    const { main } = formatResult(s);
     suppressRef.current = true;
-    onChange(s.text);
+    onChange(main);
+    onCoords({ lat: parseFloat(s.lat), lon: parseFloat(s.lon) });
     setOpen(false);
     setSuggestions([]);
-
-    if (s.lat !== null && s.lon !== null) {
-      // Nominatim result — coords available immediately
-      onCoords({ lat: s.lat, lon: s.lon });
-    } else if (s.place_id) {
-      // Google Places result — fetch coords via place details
-      onCoords(null);
-      try {
-        const details = await getPlaceDetails(s.place_id);
-        onCoords({ lat: details.lat, lon: details.lon });
-      } catch {
-        // coords unavailable; backend will geocode the text string
-      }
-    }
   }
 
   function handleChange(e) {
@@ -87,9 +150,10 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
     navigator.geolocation.getCurrentPosition(
       async ({ coords: { latitude: lat, longitude: lon } }) => {
         try {
-          const data = await reverseGeocode(lat, lon);
+          const data = await nominatimReverse(lat, lon);
+          const { main } = formatResult(data);
           suppressRef.current = true;
-          onChange(data.address);
+          onChange(main);
           onCoords({ lat, lon });
         } catch { /* ignore */ }
         finally { setGeoLoading(false); }
@@ -132,22 +196,25 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
 
       {open && suggestions.length > 0 && (
         <ul className="ac-list" role="listbox">
-          {suggestions.map((s) => (
-            <li
-              key={s.place_id}
-              className="ac-item"
-              role="option"
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => select(s)}
-            >
-              <span className="ac-pin">📍</span>
-              <div className="ac-text">
-                <span className="ac-main">{s.main}</span>
-                {s.sub && <span className="ac-sub">{s.sub}</span>}
-              </div>
-            </li>
-          ))}
+          {suggestions.map((s) => {
+            const { main, sub } = formatResult(s);
+            return (
+              <li
+                key={s.place_id}
+                className="ac-item"
+                role="option"
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => select(s)}
+              >
+                <span className="ac-pin">📍</span>
+                <div className="ac-text">
+                  <span className="ac-main">{main}</span>
+                  {sub && <span className="ac-sub">{sub}</span>}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

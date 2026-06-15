@@ -6,7 +6,6 @@ import os
 import csv
 import io
 import json
-import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -38,8 +37,6 @@ app.add_middleware(
 )
 
 
-# --- Storage ---
-
 def load_routes():
     if not ROUTES_FILE.exists():
         return []
@@ -55,8 +52,6 @@ def append_route(route):
         json.dump(routes, f, ensure_ascii=False, indent=2)
 
 
-# --- Formatting ---
-
 def fmt_duration(seconds):
     minutes = seconds // 60
     h, m = divmod(minutes, 60)
@@ -64,8 +59,6 @@ def fmt_duration(seconds):
         return f"{h} h {m} min"
     return f"{m} min"
 
-
-# --- Google Maps Directions ---
 
 async def calc_google(origin, destination, origin_lat=None, origin_lon=None, dest_lat=None, dest_lon=None):
     import time as _time
@@ -100,8 +93,6 @@ async def calc_google(origin, destination, origin_lat=None, origin_lon=None, des
     return km, dur
 
 
-# --- OSRM + Nominatim ---
-
 async def geocode_nominatim(address):
     params = {"q": address, "format": "json", "limit": 1}
     headers = {"User-Agent": "KilometerTracker/1.0"}
@@ -134,8 +125,6 @@ async def calc_osrm(origin, destination, origin_lat=None, origin_lon=None, dest_
     return km, dur
 
 
-# --- Unified calculate ---
-
 async def calculate_route(origin, destination, origin_lat=None, origin_lon=None, dest_lat=None, dest_lon=None):
     if GOOGLE_MAPS_API_KEY:
         km, dur = await calc_google(origin, destination, origin_lat, origin_lon, dest_lat, dest_lon)
@@ -150,8 +139,6 @@ async def calculate_route(origin, destination, origin_lat=None, origin_lon=None,
     )
     return {"distance_km": km, "duration": dur, "maps_url": maps_url, "source": source}
 
-
-# --- Pydantic models ---
 
 class CalculateRequest(BaseModel):
     origin: str
@@ -169,8 +156,6 @@ class SaveRequest(BaseModel):
     duration: str
     source: str
 
-
-# --- Core endpoints ---
 
 @app.post("/calculate")
 async def calculate(req: CalculateRequest):
@@ -228,197 +213,3 @@ async def export_csv():
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": "attachment; filename=prevozeni_kilometri.csv"},
     )
-
-
-# --- Autocomplete helpers ---
-
-def _norm(s):
-    return unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode().lower()
-
-
-async def _places_autocomplete(q):
-    # Places API (New)
-    hdrs = {
-        "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
-        "Content-Type": "application/json",
-    }
-    body = {
-        "input": q,
-        "languageCode": "sl",
-        "locationBias": {
-            "circle": {
-                "center": {"latitude": 46.1, "longitude": 14.9},
-                "radius": 300000.0,
-            }
-        },
-    }
-    async with httpx.AsyncClient(timeout=5) as client:
-        r = await client.post(
-            "https://places.googleapis.com/v1/places:autocomplete",
-            json=body,
-            headers=hdrs,
-        )
-    data = r.json()
-    results = []
-    for s in data.get("suggestions", []):
-        p    = s.get("placePrediction", {})
-        fmt  = p.get("structuredFormat", {})
-        main = fmt.get("mainText", {}).get("text", "")
-        sub  = fmt.get("secondaryText", {}).get("text", "")
-        text = p.get("text", {}).get("text", main)
-        pid  = p.get("placeId", "")
-        if not pid:
-            continue
-        results.append({
-            "place_id": pid,
-            "text": text,
-            "main": main,
-            "sub": sub,
-            "lat": None,
-            "lon": None,
-        })
-    return {"results": results, "source": "google"}
-
-
-async def _nominatim_autocomplete(q):
-    def _format_nom(s):
-        a = s.get("address", {})
-        poi    = a.get("amenity") or a.get("shop") or a.get("tourism") or a.get("leisure") or a.get("historic") or a.get("office")
-        street = a.get("road") or a.get("pedestrian") or a.get("path") or a.get("footway")
-        num    = a.get("house_number", "")
-        city   = a.get("city") or a.get("town") or a.get("village") or a.get("municipality")
-        suburb = a.get("suburb") or a.get("neighbourhood") or a.get("district")
-        postcode = a.get("postcode", "")
-        region   = a.get("county") or a.get("state") or ""
-        cc       = (a.get("country_code") or "").upper()
-        foreign  = a.get("country") if cc and cc != "SI" else None
-        if poi:
-            main = poi
-            if street:
-                main += f", {street}{' ' + num if num else ''}"
-            if city:
-                main += f", {city}"
-        elif street:
-            main = f"{street} {num}".strip() if num else street
-            if city:
-                main += f", {city}"
-        elif city:
-            main = city
-        else:
-            main = s.get("display_name", "").split(",")[0].strip()
-        sub_parts = [x for x in [suburb, postcode, region, foreign] if x]
-        sub = ", ".join(sub_parts[:3])
-        return main, sub
-
-    params = {
-        "q": q, "format": "json", "limit": 10, "addressdetails": 1,
-        "viewbox": "13.4,46.9,16.6,45.4", "bounded": 0,
-        "countrycodes": "si,hr,at,it,hu", "dedupe": 1,
-        "accept-language": "sl,en",
-    }
-    nom_headers = {"User-Agent": "KilometerTracker/1.0"}
-    async with httpx.AsyncClient(timeout=8) as client:
-        r = await client.get("https://nominatim.openstreetmap.org/search", params=params, headers=nom_headers)
-    data = r.json()
-    words = [w for w in _norm(q).split() if len(w) >= 2]
-    seen = set()
-    results = []
-    for s in data:
-        if len(results) >= 5:
-            break
-        a = s.get("address", {})
-        name_fields = " ".join(filter(None, [
-            a.get("amenity"), a.get("shop"), a.get("tourism"), a.get("leisure"),
-            a.get("historic"), a.get("office"), a.get("road"), a.get("pedestrian"),
-            a.get("path"), a.get("footway"), a.get("city"), a.get("town"),
-            a.get("village"), a.get("municipality"), s.get("name"),
-        ]))
-        if words and not any(w in _norm(name_fields) for w in words):
-            continue
-        main, sub = _format_nom(s)
-        key = _norm(main)
-        if key in seen:
-            continue
-        seen.add(key)
-        results.append({
-            "place_id": str(s.get("place_id", "")),
-            "text": main,
-            "main": main,
-            "sub": sub,
-            "lat": float(s["lat"]),
-            "lon": float(s["lon"]),
-        })
-    return {"results": results, "source": "nominatim"}
-
-
-# --- Autocomplete endpoints ---
-
-@app.get("/autocomplete")
-async def autocomplete(q: str = ""):
-    q = q.strip()
-    if len(q) < 2:
-        return {"results": [], "source": "none"}
-    if GOOGLE_MAPS_API_KEY:
-        try:
-            return await _places_autocomplete(q)
-        except Exception:
-            pass
-    return await _nominatim_autocomplete(q)
-
-
-@app.get("/place")
-async def place_details(place_id: str):
-    if not GOOGLE_MAPS_API_KEY:
-        raise HTTPException(400, "Ni Google Maps API kljuca.")
-    # Places API (New)
-    hdrs = {
-        "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
-        "X-Goog-FieldMask": "location",
-    }
-    async with httpx.AsyncClient(timeout=5) as client:
-        r = await client.get(
-            f"https://places.googleapis.com/v1/places/{place_id}",
-            headers=hdrs,
-        )
-    data = r.json()
-    if "location" not in data:
-        err = data.get("error", {}).get("message", "unknown")
-        raise HTTPException(400, f"Kraj ni bil najden: {err}")
-    loc = data["location"]
-    return {"lat": loc["latitude"], "lon": loc["longitude"]}
-
-
-@app.get("/reverse")
-async def reverse_geocode(lat: float, lon: float):
-    if GOOGLE_MAPS_API_KEY:
-        params = {
-            "latlng": f"{lat},{lon}",
-            "key": GOOGLE_MAPS_API_KEY,
-            "language": "sl",
-            "result_type": "street_address|route|locality",
-        }
-        async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.get("https://maps.googleapis.com/maps/api/geocode/json", params=params)
-        data = r.json()
-        if data.get("status") == "OK" and data.get("results"):
-            return {"address": data["results"][0]["formatted_address"]}
-    nom_params = {"lat": lat, "lon": lon, "format": "json", "addressdetails": 1, "accept-language": "sl,en"}
-    nom_headers = {"User-Agent": "KilometerTracker/1.0"}
-    async with httpx.AsyncClient(timeout=8) as client:
-        r = await client.get("https://nominatim.openstreetmap.org/reverse", params=nom_params, headers=nom_headers)
-    data = r.json()
-    if "error" in data:
-        raise HTTPException(400, "Ni mogoche dolociti naslova.")
-    a = data.get("address", {})
-    street = a.get("road") or a.get("pedestrian") or a.get("path") or ""
-    num    = a.get("house_number", "")
-    city   = a.get("city") or a.get("town") or a.get("village") or a.get("municipality") or ""
-    if street:
-        addr = f"{street} {num}".strip() if num else street
-        if city:
-            addr += f", {city}"
-    elif city:
-        addr = city
-    else:
-        addr = data.get("display_name", "").split(",")[0].strip()
-    return {"address": addr}
