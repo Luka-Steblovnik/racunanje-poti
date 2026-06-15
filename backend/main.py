@@ -57,6 +57,7 @@ def load_routes() -> list[dict]:
 
 
 def append_route(route: dict) -> None:
+    _data_dir.mkdir(parents=True, exist_ok=True)  # ustvari mapo, če ne obstaja
     routes = load_routes()
     routes.append(route)
     with ROUTES_FILE.open("w", encoding="utf-8") as f:
@@ -222,7 +223,10 @@ async def save_route(req: SaveRequest):
         "duration": req.duration,
         "source": req.source,
     }
-    append_route(entry)
+    try:
+        append_route(entry)
+    except Exception as e:
+        raise HTTPException(500, f"Napaka pri shranjevanju: {e}")
     return {"ok": True}
 
 
