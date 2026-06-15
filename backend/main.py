@@ -126,12 +126,8 @@ async def calc_osrm(origin, destination, origin_lat=None, origin_lon=None, dest_
 
 
 async def calculate_route(origin, destination, origin_lat=None, origin_lon=None, dest_lat=None, dest_lon=None):
-    if GOOGLE_MAPS_API_KEY:
-        km, dur = await calc_google(origin, destination, origin_lat, origin_lon, dest_lat, dest_lon)
-        source = "google"
-    else:
-        km, dur = await calc_osrm(origin, destination, origin_lat, origin_lon, dest_lat, dest_lon)
-        source = "osrm"
+    km, dur = await calc_osrm(origin, destination, origin_lat, origin_lon, dest_lat, dest_lon)
+    source = "osrm"
     maps_url = (
         "https://www.google.com/maps/dir/?api=1"
         f"&origin={origin.replace(' ', '+')}"
