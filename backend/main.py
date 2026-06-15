@@ -237,24 +237,40 @@ def _norm(s):
 
 
 async def _places_autocomplete(q):
-    params = {
+    # Places API (New)
+    hdrs = {
+        "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+        "Content-Type": "application/json",
+    }
+    body = {
         "input": q,
-        "key": GOOGLE_MAPS_API_KEY,
-        "language": "sl",
-        "location": "46.1,14.9",
-        "radius": 300000,
+        "languageCode": "sl",
+        "locationBias": {
+            "circle": {
+                "center": {"latitude": 46.1, "longitude": 14.9},
+                "radius": 300000.0,
+            }
+        },
     }
     async with httpx.AsyncClient(timeout=5) as client:
-        r = await client.get("https://maps.googleapis.com/maps/api/place/autocomplete/json", params=params)
+        r = await client.post(
+            "https://places.googleapis.com/v1/places:autocomplete",
+            json=body,
+            headers=hdrs,
+        )
     data = r.json()
     results = []
-    for p in data.get("predictions", []):
-        st   = p.get("structured_formatting", {})
-        main = st.get("main_text", "")
-        sub  = st.get("secondary_text", "")
-        text = p.get("description", main)
+    for s in data.get("suggestions", []):
+        p    = s.get("placePrediction", {})
+        fmt  = p.get("structuredFormat", {})
+        main = fmt.get("mainText", {}).get("text", "")
+        sub  = fmt.get("secondaryText", {}).get("text", "")
+        text = p.get("text", {}).get("text", main)
+        pid  = p.get("placeId", "")
+        if not pid:
+            continue
         results.append({
-            "place_id": p["place_id"],
+            "place_id": pid,
             "text": text,
             "main": main,
             "sub": sub,
@@ -300,9 +316,9 @@ async def _nominatim_autocomplete(q):
         "countrycodes": "si,hr,at,it,hu", "dedupe": 1,
         "accept-language": "sl,en",
     }
-    headers = {"User-Agent": "KilometerTracker/1.0"}
+    nom_headers = {"User-Agent": "KilometerTracker/1.0"}
     async with httpx.AsyncClient(timeout=8) as client:
-        r = await client.get("https://nominatim.openstreetmap.org/search", params=params, headers=headers)
+        r = await client.get("https://nominatim.openstreetmap.org/search", params=params, headers=nom_headers)
     data = r.json()
     words = [w for w in _norm(q).split() if len(w) >= 2]
     seen = set()
@@ -354,19 +370,22 @@ async def autocomplete(q: str = ""):
 async def place_details(place_id: str):
     if not GOOGLE_MAPS_API_KEY:
         raise HTTPException(400, "Ni Google Maps API kljuca.")
-    params = {
-        "place_id": place_id,
-        "key": GOOGLE_MAPS_API_KEY,
-        "fields": "geometry",
-        "language": "sl",
+    # Places API (New)
+    hdrs = {
+        "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+        "X-Goog-FieldMask": "location",
     }
     async with httpx.AsyncClient(timeout=5) as client:
-        r = await client.get("https://maps.googleapis.com/maps/api/place/details/json", params=params)
+        r = await client.get(
+            f"https://places.googleapis.com/v1/places/{place_id}",
+            headers=hdrs,
+        )
     data = r.json()
-    if data.get("status") != "OK":
-        raise HTTPException(400, f"Kraj ni bil najden: {data.get('status')}")
-    loc = data["result"]["geometry"]["location"]
-    return {"lat": loc["lat"], "lon": loc["lng"]}
+    if "location" not in data:
+        err = data.get("error", {}).get("message", "unknown")
+        raise HTTPException(400, f"Kraj ni bil najden: {err}")
+    loc = data["location"]
+    return {"lat": loc["latitude"], "lon": loc["longitude"]}
 
 
 @app.get("/reverse")
@@ -383,10 +402,10 @@ async def reverse_geocode(lat: float, lon: float):
         data = r.json()
         if data.get("status") == "OK" and data.get("results"):
             return {"address": data["results"][0]["formatted_address"]}
-    params = {"lat": lat, "lon": lon, "format": "json", "addressdetails": 1, "accept-language": "sl,en"}
-    headers = {"User-Agent": "KilometerTracker/1.0"}
+    nom_params = {"lat": lat, "lon": lon, "format": "json", "addressdetails": 1, "accept-language": "sl,en"}
+    nom_headers = {"User-Agent": "KilometerTracker/1.0"}
     async with httpx.AsyncClient(timeout=8) as client:
-        r = await client.get("https://nominatim.openstreetmap.org/reverse", params=params, headers=headers)
+        r = await client.get("https://nominatim.openstreetmap.org/reverse", params=nom_params, headers=nom_headers)
     data = r.json()
     if "error" in data:
         raise HTTPException(400, "Ni mogoche dolociti naslova.")
