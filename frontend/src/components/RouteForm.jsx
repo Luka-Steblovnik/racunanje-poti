@@ -1,73 +1,76 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-const SLO_VIEWBOX = "13.4,46.9,16.6,45.4";
+// Photon (Komoot) — designed for autocomplete, OSM data, no API key, CORS ok
+const PHOTON = "https://photon.komoot.io";
+// Nominatim — fallback for reverse geocoding
 const NOM = "https://nominatim.openstreetmap.org";
 
-function formatResult(s) {
-  const a = s.address || {};
-  const poi    = a.amenity || a.shop || a.tourism || a.leisure || a.historic || a.office;
-  const street = a.road || a.pedestrian || a.path || a.footway;
-  const num    = a.house_number;
-  const city   = a.city || a.town || a.village || a.municipality;
-  const suburb = a.suburb || a.neighbourhood || a.district;
+// Format a Photon GeoJSON feature into { main, sub, lat, lon }
+function formatPhoton(f) {
+  const p = f.properties || {};
+  const [lon, lat] = f.geometry.coordinates;
+
+  const name    = p.name || "";
+  const street  = p.street || "";
+  const hnum    = p.housenumber || "";
+  const city    = p.city || p.town || p.village || p.county || "";
+  const postcode = p.postcode || "";
+  const state   = p.state || "";
+  const country = p.country || "";
+  const isSlovenia = country === "Slovenija" || country === "Slovenia" || p.countrycode === "SI";
 
   let main = "";
-  if (poi) {
-    main = poi;
-    if (street) main += `, ${street}${num ? " " + num : ""}`;
-    if (city)   main += `, ${city}`;
-  } else if (street) {
-    main = num ? `${street} ${num}` : street;
+  const isPlace = ["city","town","village","hamlet","locality","suburb","borough","quarter","neighbourhood","municipality"].includes(p.type);
+
+  if (name && !isPlace && street) {
+    // POI with a street
+    main = `${name}, ${street}${hnum ? " " + hnum : ""}`;
     if (city) main += `, ${city}`;
-  } else if (city) {
-    main = city;
+  } else if (name && !isPlace) {
+    // POI without street
+    main = name;
+    if (city && city !== name) main += `, ${city}`;
+  } else if (street) {
+    // Street / address
+    main = hnum ? `${street} ${hnum}` : street;
+    if (city) main += `, ${city}`;
+  } else if (name) {
+    // Settlement / place name
+    main = name;
+    if (city && city !== name) main += `, ${city}`;
   } else {
-    main = s.display_name.split(",").slice(0, 2).map(p => p.trim()).join(", ");
+    main = city || country;
   }
 
-  const postcode = a.postcode;
-  const region   = a.county || a.state;
-  const foreign  = a.country_code && a.country_code.toUpperCase() !== "SI" ? a.country : null;
-  const subParts = [suburb, postcode, region, foreign].filter(Boolean);
-  const sub = subParts.slice(0, 3).join(", ");
+  const subParts = [postcode, state, isSlovenia ? null : country].filter(Boolean);
+  const sub = subParts.slice(0, 2).join(", ");
 
-  return { main, sub };
+  return { main, sub, lat, lon };
 }
 
-function norm(s) {
-  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-}
-
-async function nominatimSearch(q) {
+async function photonSearch(q) {
   const url =
-    `${NOM}/search?q=${encodeURIComponent(q)}` +
-    `&format=json&limit=10&addressdetails=1` +
-    `&viewbox=${SLO_VIEWBOX}&bounded=0` +
-    `&countrycodes=si,hr,at,it,hu` +
-    `&dedupe=1&accept-language=sl,en`;
-  const res = await fetch(url, { headers: { "User-Agent": "KilometerTracker/1.0" } });
+    `${PHOTON}/api/?q=${encodeURIComponent(q)}` +
+    `&lat=46.1&lon=14.9&zoom=12&limit=7&lang=sl`;
+  const res = await fetch(url);
   const data = await res.json();
 
-  const words = norm(q).split(/\s+/).filter(w => w.length >= 2);
   const seen = new Set();
-  return data.filter(s => {
-    const a = s.address || {};
-    const nameFields = [
-      a.amenity, a.shop, a.tourism, a.leisure, a.historic, a.office,
-      a.road, a.pedestrian, a.path, a.footway,
-      a.city, a.town, a.village, a.municipality,
-      s.name,
-    ].filter(Boolean).map(norm).join(" ");
+  const results = [];
+  for (const f of (data.features || [])) {
+    const p = f.properties || {};
+    // Prefer Slovenia + neighbours; skip distant countries unless explicitly searched
+    const cc = (p.countrycode || "").toUpperCase();
+    if (!["SI","HR","AT","IT","HU"].includes(cc)) continue;
 
-    const relevant = words.some(w => nameFields.includes(w));
-    if (!relevant) return false;
-
-    const { main } = formatResult(s);
-    const key = norm(main);
-    if (seen.has(key)) return false;
+    const { main, sub, lat, lon } = formatPhoton(f);
+    const key = main.toLowerCase();
+    if (seen.has(key)) continue;
     seen.add(key);
-    return true;
-  }).slice(0, 5);
+    results.push({ id: `${lat},${lon}`, main, sub, lat, lon });
+    if (results.length >= 5) break;
+  }
+  return results;
 }
 
 async function nominatimReverse(lat, lon) {
@@ -75,7 +78,15 @@ async function nominatimReverse(lat, lon) {
     `${NOM}/reverse?lat=${lat}&lon=${lon}` +
     `&format=json&addressdetails=1&accept-language=sl,en`;
   const res = await fetch(url, { headers: { "User-Agent": "KilometerTracker/1.0" } });
-  return res.json();
+  const data = await res.json();
+
+  // Build a clean address string from reverse result
+  const a = data.address || {};
+  const street  = a.road || a.pedestrian || a.path || "";
+  const hnum    = a.house_number || "";
+  const city    = a.city || a.town || a.village || a.municipality || "";
+  if (street) return hnum ? `${street} ${hnum}, ${city}` : city ? `${street}, ${city}` : street;
+  return city || data.display_name?.split(",")[0] || "";
 }
 
 function IconCrosshair() {
@@ -99,16 +110,16 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
   const suppressRef  = useRef(false);
 
   const search = useCallback(async (q) => {
-    if (q.trim().length < 3) { setSuggestions([]); setOpen(false); return; }
+    if (q.trim().length < 2) { setSuggestions([]); setOpen(false); return; }
     setSearching(true);
     try {
-      const results = await nominatimSearch(q);
+      const results = await photonSearch(q);
       if (results.length > 0) {
         setSuggestions(results);
         setOpen(true);
       }
     } catch {
-      /* ob napaki pusti stare predloge */
+      /* keep old suggestions on error */
     } finally {
       setSearching(false);
     }
@@ -117,7 +128,7 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
   useEffect(() => {
     if (suppressRef.current) { suppressRef.current = false; return; }
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => search(value), 280);
+    debounceRef.current = setTimeout(() => search(value), 250);
     return () => clearTimeout(debounceRef.current);
   }, [value, search]);
 
@@ -131,10 +142,9 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
   }, []);
 
   function select(s) {
-    const { main } = formatResult(s);
     suppressRef.current = true;
-    onChange(main);
-    onCoords({ lat: parseFloat(s.lat), lon: parseFloat(s.lon) });
+    onChange(s.main);
+    onCoords({ lat: s.lat, lon: s.lon });
     setOpen(false);
     setSuggestions([]);
   }
@@ -150,10 +160,9 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
     navigator.geolocation.getCurrentPosition(
       async ({ coords: { latitude: lat, longitude: lon } }) => {
         try {
-          const data = await nominatimReverse(lat, lon);
-          const { main } = formatResult(data);
+          const addr = await nominatimReverse(lat, lon);
           suppressRef.current = true;
-          onChange(main);
+          onChange(addr);
           onCoords({ lat, lon });
         } catch { /* ignore */ }
         finally { setGeoLoading(false); }
@@ -196,25 +205,22 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
 
       {open && suggestions.length > 0 && (
         <ul className="ac-list" role="listbox">
-          {suggestions.map((s) => {
-            const { main, sub } = formatResult(s);
-            return (
-              <li
-                key={s.place_id}
-                className="ac-item"
-                role="option"
-                tabIndex={-1}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => select(s)}
-              >
-                <span className="ac-pin">📍</span>
-                <div className="ac-text">
-                  <span className="ac-main">{main}</span>
-                  {sub && <span className="ac-sub">{sub}</span>}
-                </div>
-              </li>
-            );
-          })}
+          {suggestions.map((s) => (
+            <li
+              key={s.id}
+              className="ac-item"
+              role="option"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => select(s)}
+            >
+              <span className="ac-pin">📍</span>
+              <div className="ac-text">
+                <span className="ac-main">{s.main}</span>
+                {s.sub && <span className="ac-sub">{s.sub}</span>}
+              </div>
+            </li>
+          ))}
         </ul>
       )}
     </div>
