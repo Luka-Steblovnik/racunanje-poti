@@ -88,6 +88,38 @@ body {
    ============================================================ */
 .ac-wrapper { position: relative; }
 
+/* Input + geo button wrapper */
+.ac-input-wrap { position: relative; display: flex; }
+
+.ac-input-wrap input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ac-input-wrap input.has-geo-btn { padding-right: 42px; }
+
+.ac-geo-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  color: var(--primary);
+  padding: 4px;
+  line-height: 1;
+  border-radius: 6px;
+  transition: background .15s, color .15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ac-geo-btn:hover:not(:disabled) { background: rgba(37,99,235,.1); }
+.ac-geo-btn:disabled { opacity: .4; cursor: not-allowed; }
+
 .ac-loading {
   font-size: .8rem;
   color: var(--text-muted);
@@ -123,7 +155,7 @@ body {
 
 .ac-item:hover { background: var(--bg); }
 
-.ac-icon { font-size: 1rem; margin-top: 1px; flex-shrink: 0; }
+.ac-icon, .ac-pin { font-size: 1rem; margin-top: 1px; flex-shrink: 0; }
 
 .ac-text { display: flex; flex-direction: column; min-width: 0; }
 
