@@ -150,4 +150,52 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
           ))}
         </ul>
       )}
-    </di
+    </div>
+  );
+}
+
+export default function RouteForm({ onCalculate, loading }) {
+  const [origin,       setOrigin]       = useState("");
+  const [destination,  setDestination]  = useState("");
+  const [originCoords, setOriginCoords] = useState(null);
+  const [destCoords,   setDestCoords]   = useState(null);
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const o = origin.trim();
+    const d = destination.trim();
+    if (!o || !d) return;
+    onCalculate(o, d, originCoords, destCoords);
+  }
+
+  return (
+    <form className="route-form" onSubmit={handleSubmit}>
+      <AddressInput
+        id="origin"
+        label="Od"
+        placeholder="npr. Ljubljana, Kongresni trg"
+        value={origin}
+        onChange={setOrigin}
+        onCoords={setOriginCoords}
+        disabled={loading}
+        showGeoBtn
+      />
+      <AddressInput
+        id="destination"
+        label="Kam"
+        placeholder="npr. Maribor, Glavni trg"
+        value={destination}
+        onChange={setDestination}
+        onCoords={setDestCoords}
+        disabled={loading}
+      />
+      <button
+        type="submit"
+        className="btn btn-primary"
+        disabled={loading || !origin.trim() || !destination.trim()}
+      >
+        {loading ? "Računam…" : "Izračunaj pot"}
+      </button>
+    </form>
+  );
+}
