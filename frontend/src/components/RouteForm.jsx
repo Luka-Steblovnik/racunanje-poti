@@ -53,11 +53,6 @@ async function photonSearch(q) {
   const seen = new Set();
   const results = [];
   for (const f of (data.features || [])) {
-    const p = f.properties || {};
-    // Prefer Slovenia + neighbours
-    const cc = (p.countrycode || "").toLowerCase();
-    if (!["si","hr","at","it","hu"].includes(cc)) continue;
-
     const { main, sub, lat, lon } = formatPhoton(f);
     const key = main.toLowerCase();
     if (seen.has(key)) continue;
