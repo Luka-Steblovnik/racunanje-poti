@@ -1,91 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-
-// Slovenia viewbox — bias results toward Slovenia without hard-limiting
-// format: left,top,right,bottom  (lon_min, lat_max, lon_max, lat_min)
-const SLO_VIEWBOX = "13.4,46.9,16.6,45.4";
-const NOM = "https://nominatim.openstreetmap.org";
-
-function formatResult(s) {
-  const a = s.address || {};
-
-  const poi    = a.amenity || a.shop || a.tourism || a.leisure || a.historic || a.office;
-  const street = a.road || a.pedestrian || a.path || a.footway;
-  const num    = a.house_number;
-  const city   = a.city || a.town || a.village || a.municipality;
-  const suburb = a.suburb || a.neighbourhood || a.district;
-
-  let main = "";
-  if (poi) {
-    main = poi;
-    if (street) main += `, ${street}${num ? " " + num : ""}`;
-    if (city)   main += `, ${city}`;
-  } else if (street) {
-    main = num ? `${street} ${num}` : street;
-    if (city) main += `, ${city}`;
-  } else if (city) {
-    main = city;
-  } else {
-    main = s.display_name.split(",").slice(0, 2).map(p => p.trim()).join(", ");
-  }
-
-  const postcode = a.postcode;
-  const region   = a.county || a.state;
-  const foreign  = a.country_code && a.country_code.toUpperCase() !== "SI" ? a.country : null;
-  const subParts = [suburb, postcode, region, foreign].filter(Boolean);
-  const sub = subParts.slice(0, 3).join(", ");
-
-  return { main, sub };
-}
-
-// Normalize: strip diacritics, lowercase
-function norm(s) {
-  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-}
-
-async function nominatimSearch(q) {
-  const url =
-    `${NOM}/search?q=${encodeURIComponent(q)}` +
-    `&format=json&limit=10&addressdetails=1` +
-    `&viewbox=${SLO_VIEWBOX}&bounded=0` +
-    `&countrycodes=si,hr,at,it,hu` +
-    `&dedupe=1&accept-language=sl,en`;
-  const res = await fetch(url, { headers: { "User-Agent": "KilometerTracker/1.0" } });
-  const data = await res.json();
-
-  // Obdrži samo rezultate kjer vsaj ena beseda iz poizvedbe nastopa v
-  // imenu kraja, ulice ali mesta — NE v celotnem display_name (ki vsebuje
-  // vse naslovne komponente in bi "ulica" ujel npr. Donja Kupčina).
-  const words = norm(q).split(/\s+/).filter(w => w.length >= 2);
-
-  const seen = new Set();
-  return data.filter(s => {
-    const a = s.address || {};
-    // Zgradimo iskalni niz samo iz relevantnih polj (ne display_name)
-    const nameFields = [
-      a.amenity, a.shop, a.tourism, a.leisure, a.historic, a.office,
-      a.road, a.pedestrian, a.path, a.footway,
-      a.city, a.town, a.village, a.municipality,
-      s.name,
-    ].filter(Boolean).map(norm).join(" ");
-
-    const relevant = words.some(w => nameFields.includes(w));
-    if (!relevant) return false;
-
-    const { main } = formatResult(s);
-    const key = norm(main);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).slice(0, 5);
-}
-
-async function nominatimReverse(lat, lon) {
-  const url =
-    `${NOM}/reverse?lat=${lat}&lon=${lon}` +
-    `&format=json&addressdetails=1&accept-language=sl,en`;
-  const res = await fetch(url, { headers: { "User-Agent": "KilometerTracker/1.0" } });
-  return res.json();
-}
+import { searchAutocomplete, getPlaceDetails, reverseGeocode } from "../api.js";
 
 function IconCrosshair() {
   return (
@@ -111,14 +25,15 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
     if (q.trim().length < 3) { setSuggestions([]); setOpen(false); return; }
     setSearching(true);
     try {
-      const results = await nominatimSearch(q);
+      const data = await searchAutocomplete(q);
+      const results = data.results || [];
       if (results.length > 0) {
         setSuggestions(results);
         setOpen(true);
       }
-      // če ni zadetkov, obdrži stare predloge vidne (ne zapri dropdowna)
+      // if no results, keep old suggestions visible
     } catch {
-      /* ob napaki pusti stare predloge */
+      /* keep old suggestions on error */
     } finally {
       setSearching(false);
     }
@@ -140,13 +55,25 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
     return () => document.removeEventListener("mousedown", handle);
   }, []);
 
-  function select(s) {
-    const { main } = formatResult(s);
+  async function select(s) {
     suppressRef.current = true;
-    onChange(main);
-    onCoords({ lat: parseFloat(s.lat), lon: parseFloat(s.lon) });
+    onChange(s.text);
     setOpen(false);
     setSuggestions([]);
+
+    if (s.lat !== null && s.lon !== null) {
+      // Nominatim result — coords available immediately
+      onCoords({ lat: s.lat, lon: s.lon });
+    } else if (s.place_id) {
+      // Google Places result — fetch coords via place details
+      onCoords(null);
+      try {
+        const details = await getPlaceDetails(s.place_id);
+        onCoords({ lat: details.lat, lon: details.lon });
+      } catch {
+        // coords unavailable; backend will geocode the text string
+      }
+    }
   }
 
   function handleChange(e) {
@@ -160,10 +87,9 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
     navigator.geolocation.getCurrentPosition(
       async ({ coords: { latitude: lat, longitude: lon } }) => {
         try {
-          const data = await nominatimReverse(lat, lon);
-          const { main } = formatResult(data);
+          const data = await reverseGeocode(lat, lon);
           suppressRef.current = true;
-          onChange(main);
+          onChange(data.address);
           onCoords({ lat, lon });
         } catch { /* ignore */ }
         finally { setGeoLoading(false); }
@@ -206,73 +132,22 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
 
       {open && suggestions.length > 0 && (
         <ul className="ac-list" role="listbox">
-          {suggestions.map((s) => {
-            const { main, sub } = formatResult(s);
-            return (
-              <li
-                key={s.place_id}
-                className="ac-item"
-                role="option"
-                tabIndex={-1}
-                onMouseDown={(e) => e.preventDefault()} // prepreči blur inputa
-                onClick={() => select(s)}
-              >
-                <span className="ac-pin">📍</span>
-                <div className="ac-text">
-                  <span className="ac-main">{main}</span>
-                  {sub && <span className="ac-sub">{sub}</span>}
-                </div>
-              </li>
-            );
-          })}
+          {suggestions.map((s) => (
+            <li
+              key={s.place_id}
+              className="ac-item"
+              role="option"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => select(s)}
+            >
+              <span className="ac-pin">📍</span>
+              <div className="ac-text">
+                <span className="ac-main">{s.main}</span>
+                {s.sub && <span className="ac-sub">{s.sub}</span>}
+              </div>
+            </li>
+          ))}
         </ul>
       )}
-    </div>
-  );
-}
-
-export default function RouteForm({ onCalculate, loading }) {
-  const [origin,       setOrigin]       = useState("");
-  const [destination,  setDestination]  = useState("");
-  const [originCoords, setOriginCoords] = useState(null);
-  const [destCoords,   setDestCoords]   = useState(null);
-
-  function handleSubmit(e) {
-    e.preventDefault();
-    const o = origin.trim();
-    const d = destination.trim();
-    if (!o || !d) return;
-    onCalculate(o, d, originCoords, destCoords);
-  }
-
-  return (
-    <form className="route-form" onSubmit={handleSubmit}>
-      <AddressInput
-        id="origin"
-        label="Od"
-        placeholder="npr. Ljubljana, Kongresni trg"
-        value={origin}
-        onChange={setOrigin}
-        onCoords={setOriginCoords}
-        disabled={loading}
-        showGeoBtn
-      />
-      <AddressInput
-        id="destination"
-        label="Kam"
-        placeholder="npr. Maribor, Glavni trg"
-        value={destination}
-        onChange={setDestination}
-        onCoords={setDestCoords}
-        disabled={loading}
-      />
-      <button
-        type="submit"
-        className="btn btn-primary"
-        disabled={loading || !origin.trim() || !destination.trim()}
-      >
-        {loading ? "Računam…" : "Izračunaj pot"}
-      </button>
-    </form>
-  );
-}
+    </di

@@ -31,17 +31,4 @@ export async function calculateRoute(origin, destination, originCoords, destCoor
   });
 }
 
-export async function saveRoute(payload) {
-  return request("/routes", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function fetchRoutes() {
-  return request("/routes");
-}
-
-export function exportCsvUrl() {
-  return `${BASE}/routes/export`;
-}
+export async function saveRoute(payload

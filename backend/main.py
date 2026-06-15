@@ -80,13 +80,23 @@ def fmt_duration(seconds: int) -> str:
 # Distance calculation — Google Maps
 # ---------------------------------------------------------------------------
 
-async def calc_google(origin: str, destination: str) -> tuple[float, str]:
+async def calc_google(
+    origin: str,
+    destination: str,
+    origin_lat: float | None = None,
+    origin_lon: float | None = None,
+    dest_lat: float | None = None,
+    dest_lon: float | None = None,
+) -> tuple[float, str]:
     """Returns (distance_km, duration_str). Raises ValueError on bad input."""
     url = "https://maps.googleapis.com/maps/api/directions/json"
     import time as _time
+    # Koordinate (iz autocompletea) so natančnejše od besedila — jih uporabimo če so na voljo
+    origin_param = f"{origin_lat},{origin_lon}" if origin_lat is not None else origin
+    dest_param   = f"{dest_lat},{dest_lon}"     if dest_lat   is not None else destination
     params = {
-        "origin": origin,
-        "destination": destination,
+        "origin": origin_param,
+        "destination": dest_param,
         "key": GOOGLE_MAPS_API_KEY,
         "language": "sl",
         "departure_time": int(_time.time()),  # promet v realnem času
@@ -185,7 +195,7 @@ async def calculate_route(
 ) -> dict:
     """Try Google Maps first; fall back to OSRM."""
     if GOOGLE_MAPS_API_KEY:
-        km, dur = await calc_google(origin, destination)
+        km, dur = await calc_google(origin, destination, origin_lat, origin_lon, dest_lat, dest_lon)
         source = "google"
     else:
         # OSRM fallback — clearly marked as per spec
@@ -234,55 +244,4 @@ async def calculate(req: CalculateRequest):
             req.origin.strip(), req.destination.strip(),
             req.origin_lat, req.origin_lon, req.dest_lat, req.dest_lon,
         )
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    except httpx.TimeoutException:
-        raise HTTPException(
-            503,
-            "Zahteva je potekla. Preveri internetno povezavo ali poskusi znova.",
-        )
-    except Exception as e:
-        raise HTTPException(500, f"Nepričakovana napaka: {e}")
-    return result
-
-
-@app.post("/routes")
-async def save_route(req: SaveRequest):
-    entry = {
-        "datetime": datetime.now().isoformat(timespec="seconds"),
-        "origin": req.origin,
-        "destination": req.destination,
-        "distance_km": req.distance_km,
-        "duration": req.duration,
-        "source": req.source,
-    }
-    try:
-        append_route(entry)
-    except Exception as e:
-        raise HTTPException(500, f"Napaka pri shranjevanju: {e}")
-    return {"ok": True}
-
-
-@app.get("/routes")
-async def get_routes():
-    routes = load_routes()
-    total_km = round(sum(r["distance_km"] for r in routes), 1)
-    return {"routes": routes, "total_km": total_km}
-
-
-@app.get("/routes/export")
-async def export_csv():
-    routes = load_routes()
-    output = io.StringIO()
-    fields = ["datetime", "origin", "destination", "distance_km", "duration", "source"]
-    writer = csv.DictWriter(output, fieldnames=fields)
-    writer.writeheader()
-    writer.writerows(routes)
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": "attachment; filename=prevozeni_kilometri.csv"
-        },
-    )
+    except 
