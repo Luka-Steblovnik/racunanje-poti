@@ -201,33 +201,48 @@ async def get_routes():
 
 @app.get("/autocomplete")
 async def autocomplete(q: str = ""):
-    """Returns unified suggestions list via Photon (OSM)."""
+    """Returns suggestions via Nominatim (same service already used for geocoding)."""
     if not q or len(q.strip()) < 2:
         return {"suggestions": []}
 
-    # Photon
-    params = {"q": q, "lat": "46.1", "lon": "14.9", "zoom": "12", "limit": "5", "lang": "sl"}
+    params = {
+        "q": q,
+        "format": "json",
+        "limit": 7,
+        "addressdetails": 1,
+        "countrycodes": "si,hr,at,it",
+        "accept-language": "sl,en",
+    }
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
+        async with httpx.AsyncClient(timeout=8) as client:
             r = await client.get(
-                "https://photon.komoot.io/api/",
+                "https://nominatim.openstreetmap.org/search",
                 params=params,
                 headers={"User-Agent": "KilometerTracker/1.0"},
             )
-        data = r.json()
+        results = r.json()
         suggestions = []
         seen = set()
-        for f in data.get("features", []):
-            p = f.get("properties", {})
-            name = p.get("name") or p.get("street") or p.get("city") or ""
-            city = p.get("city") or p.get("town") or p.get("village") or ""
-            country = p.get("country") or ""
-            lon, lat = f["geometry"]["coordinates"]
-            main = name
-            if city and city != name:
-                main += f", {city}"
-            sub_parts = [s for s in [p.get("postcode", ""), country] if s]
-            sub = ", ".join(sub_parts[:2])
+        for item in results:
+            a = item.get("address", {})
+            road    = a.get("road") or a.get("pedestrian") or a.get("path") or ""
+            hnum    = a.get("house_number") or ""
+            city    = a.get("city") or a.get("town") or a.get("village") or a.get("municipality") or ""
+            postcode = a.get("postcode") or ""
+            country = a.get("country") or ""
+            lat = float(item["lat"])
+            lon = float(item["lon"])
+
+            if road:
+                main = f"{road} {hnum}".strip() if hnum else road
+                if city:
+                    main += f", {city}"
+            elif city:
+                main = city
+            else:
+                main = item.get("display_name", "").split(",")[0].strip()
+
+            sub = ", ".join(s for s in [postcode, country] if s)
             key = main.lower()
             if key in seen:
                 continue
