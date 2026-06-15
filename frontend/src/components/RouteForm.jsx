@@ -1,100 +1,96 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-// Photon (komoot) — OSM-based autocomplete, designed for typeahead, fast
-// Center on Slovenia for biasing results
-const PHOTON = "https://photon.komoot.io/api";
-const PHOTON_REV = "https://photon.komoot.io/reverse";
-const BIAS_LAT = 46.15;
-const BIAS_LON = 14.99;
+// Slovenia viewbox — bias results toward Slovenia without hard-limiting
+// format: left,top,right,bottom  (lon_min, lat_max, lon_max, lat_min)
+const SLO_VIEWBOX = "13.4,46.9,16.6,45.4";
+const NOM = "https://nominatim.openstreetmap.org";
 
-function formatFeature(f) {
-  const p = f.properties;
-  const [lon, lat] = f.geometry.coordinates;
+function formatResult(s) {
+  const a = s.address || {};
 
-  const poi    = p.name;
-  const street = p.street;
-  const num    = p.housenumber;
-  const city   = p.city || p.town || p.village || p.county;
-  const isSameAsPoi = poi && city && poi.toLowerCase() === city.toLowerCase();
+  const poi    = a.amenity || a.shop || a.tourism || a.leisure || a.historic || a.office;
+  const street = a.road || a.pedestrian || a.path || a.footway;
+  const num    = a.house_number;
+  const city   = a.city || a.town || a.village || a.municipality;
+  const suburb = a.suburb || a.neighbourhood || a.district;
 
   let main = "";
-  if (poi && street) {
-    main = `${poi}, ${street}${num ? " " + num : ""}`;
-    if (city) main += `, ${city}`;
-  } else if (poi && !street) {
-    main = isSameAsPoi ? poi : (city ? `${poi}, ${city}` : poi);
+  if (poi) {
+    main = poi;
+    if (street) main += `, ${street}${num ? " " + num : ""}`;
+    if (city)   main += `, ${city}`;
   } else if (street) {
     main = num ? `${street} ${num}` : street;
     if (city) main += `, ${city}`;
   } else if (city) {
     main = city;
+  } else {
+    main = s.display_name.split(",").slice(0, 2).map(p => p.trim()).join(", ");
   }
 
-  if (!main) main = [p.name, p.city].filter(Boolean).join(", ") || "?";
+  const postcode = a.postcode;
+  const region   = a.county || a.state;
+  const foreign  = a.country_code && a.country_code.toUpperCase() !== "SI" ? a.country : null;
+  const subParts = [suburb, postcode, region, foreign].filter(Boolean);
+  const sub = subParts.slice(0, 3).join(", ");
 
-  const postcode = p.postcode;
-  const state    = p.state;
-  const foreign  = p.countrycode !== "SI" ? p.country : null;
-  const sub = [postcode, state, foreign].filter(Boolean).join(", ");
-
-  return { main, sub, lat, lon };
+  return { main, sub };
 }
 
-async function photonSearch(q) {
+async function nominatimSearch(q) {
   const url =
-    `${PHOTON}?q=${encodeURIComponent(q)}&limit=7&lang=sl` +
-    `&lat=${BIAS_LAT}&lon=${BIAS_LON}`;
-  const res = await fetch(url);
+    `${NOM}/search?q=${encodeURIComponent(q)}` +
+    `&format=json&limit=7&addressdetails=1` +
+    `&viewbox=${SLO_VIEWBOX}&bounded=0` +
+    `&dedupe=1&accept-language=sl,en`;
+  const res = await fetch(url, { headers: { "User-Agent": "KilometerTracker/1.0" } });
   const data = await res.json();
 
-  // Dedupe by formatted main label
+  // Extra client-side dedupe by formatted label
   const seen = new Set();
-  return data.features.filter(f => {
-    const key = formatFeature(f).main.toLowerCase();
+  return data.filter(s => {
+    const key = formatResult(s).main.toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   }).slice(0, 5);
 }
 
-async function photonReverse(lat, lon) {
-  const url = `${PHOTON_REV}?lat=${lat}&lon=${lon}&limit=1&lang=sl`;
-  const res = await fetch(url);
-  const data = await res.json();
-  return data.features[0] ?? null;
+async function nominatimReverse(lat, lon) {
+  const url =
+    `${NOM}/reverse?lat=${lat}&lon=${lon}` +
+    `&format=json&addressdetails=1&accept-language=sl,en`;
+  const res = await fetch(url, { headers: { "User-Agent": "KilometerTracker/1.0" } });
+  return res.json();
 }
 
-// ── Location pin SVG icon ────────────────────────────────────────────────────
 function IconCrosshair() {
   return (
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
       <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
     </svg>
   );
 }
 
-// ── AddressInput ─────────────────────────────────────────────────────────────
 function AddressInput({ id, label, value, onChange, onCoords, disabled, placeholder, showGeoBtn }) {
   const [suggestions, setSuggestions] = useState([]);
-  const [open, setOpen]               = useState(false);
-  const [searching, setSearching]     = useState(false);
-  const [geoLoading, setGeoLoading]   = useState(false);
+  const [open,        setOpen]        = useState(false);
+  const [searching,   setSearching]   = useState(false);
+  const [geoLoading,  setGeoLoading]  = useState(false);
 
   const containerRef = useRef(null);
   const debounceRef  = useRef(null);
-  const suppressRef  = useRef(false); // skip fetch after programmatic onChange
+  const suppressRef  = useRef(false);
 
-  // ── Autocomplete search ──
   const search = useCallback(async (q) => {
-    const trimmed = q.trim();
-    if (trimmed.length < 2) { setSuggestions([]); setOpen(false); return; }
+    if (q.trim().length < 2) { setSuggestions([]); setOpen(false); return; }
     setSearching(true);
     try {
-      const features = await photonSearch(trimmed);
-      setSuggestions(features);
-      setOpen(features.length > 0);
+      const results = await nominatimSearch(q);
+      setSuggestions(results);
+      setOpen(results.length > 0);
     } catch {
       setSuggestions([]);
     } finally {
@@ -105,11 +101,10 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
   useEffect(() => {
     if (suppressRef.current) { suppressRef.current = false; return; }
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => search(value), 200);
+    debounceRef.current = setTimeout(() => search(value), 280);
     return () => clearTimeout(debounceRef.current);
   }, [value, search]);
 
-  // ── Close on outside click ──
   useEffect(() => {
     const handle = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target))
@@ -119,36 +114,31 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
     return () => document.removeEventListener("mousedown", handle);
   }, []);
 
-  // ── Select suggestion ──
-  function select(f) {
-    const { main, lat, lon } = formatFeature(f);
+  function select(s) {
+    const { main } = formatResult(s);
     suppressRef.current = true;
     onChange(main);
-    onCoords({ lat, lon });
+    onCoords({ lat: parseFloat(s.lat), lon: parseFloat(s.lon) });
     setOpen(false);
     setSuggestions([]);
   }
 
-  // ── Manual edit → invalidate stored coords ──
   function handleChange(e) {
     onChange(e.target.value);
     onCoords(null);
   }
 
-  // ── Geolocation ──
   async function handleGeolocate() {
     if (!navigator.geolocation) return;
     setGeoLoading(true);
     navigator.geolocation.getCurrentPosition(
       async ({ coords: { latitude: lat, longitude: lon } }) => {
         try {
-          const f = await photonReverse(lat, lon);
-          if (f) {
-            const { main } = formatFeature(f);
-            suppressRef.current = true;
-            onChange(main);
-          }
-          onCoords({ lat, lon }); // always store GPS coords regardless of label
+          const data = await nominatimReverse(lat, lon);
+          const { main } = formatResult(data);
+          suppressRef.current = true;
+          onChange(main);
+          onCoords({ lat, lon });
         } catch { /* ignore */ }
         finally { setGeoLoading(false); }
       },
@@ -175,7 +165,7 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
         {showGeoBtn && (
           <button
             type="button"
-            className={`ac-geo-btn${geoLoading ? " ac-geo-loading" : ""}`}
+            className="ac-geo-btn"
             onClick={handleGeolocate}
             disabled={disabled || geoLoading}
             title="Moja lokacija"
@@ -190,14 +180,14 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
 
       {open && suggestions.length > 0 && (
         <ul className="ac-list" role="listbox">
-          {suggestions.map((f) => {
-            const { main, sub } = formatFeature(f);
+          {suggestions.map((s) => {
+            const { main, sub } = formatResult(s);
             return (
               <li
-                key={`${f.properties.osm_id}-${f.properties.osm_type}`}
+                key={s.place_id}
                 className="ac-item"
                 role="option"
-                onMouseDown={() => select(f)}
+                onMouseDown={() => select(s)}
               >
                 <span className="ac-pin">📍</span>
                 <div className="ac-text">
@@ -213,7 +203,6 @@ function AddressInput({ id, label, value, onChange, onCoords, disabled, placehol
   );
 }
 
-// ── RouteForm ────────────────────────────────────────────────────────────────
 export default function RouteForm({ onCalculate, loading }) {
   const [origin,       setOrigin]       = useState("");
   const [destination,  setDestination]  = useState("");
