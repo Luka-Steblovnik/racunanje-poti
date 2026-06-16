@@ -67,7 +67,7 @@ export default function App() {
     }
   }
 
-  async function handleSave(namen) {
+  async function handleSave(namen, odhod, prihod) {
     if (!result) return;
     setSaving(true);
     try {
@@ -76,7 +76,7 @@ export default function App() {
         distance_km: result.distance_km,
         duration: result.duration,
         source: result.source,
-        namen,
+        namen, odhod, prihod,
       });
       setSaved(true);
       await loadHistory();

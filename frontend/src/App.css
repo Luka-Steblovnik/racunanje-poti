@@ -462,6 +462,9 @@ body {
 .namen-field input.namen-error-input { border-color: var(--danger); }
 .namen-error-msg { font-size: .82rem; color: var(--danger); }
 
+.cas-row { display: flex; gap: 16px; }
+.cas-row .namen-field input { max-width: 130px; }
+
 .saved-notice {
   color: var(--confirm);
   font-weight: 600;
