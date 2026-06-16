@@ -330,10 +330,10 @@ async def autocomplete(q: str = ""):
         return {"suggestions": []}
     params = {
         "q": q, "format": "json", "limit": 10,
-        "addressdetails": 1, "countrycodes": "si,hr,at,it",
+        "addressdetails": 1, "namedetails": 1, "countrycodes": "si,hr,at,it",
         "accept-language": "sl,en",
-        "viewbox": "12.0,47.5,17.5,45.0",  # SI/HR/AT/IT območje
-        "bounded": 0,  # preferira viewbox, ne omejuje nanj
+        "viewbox": "12.0,47.5,17.5,45.0",
+        "bounded": 0,
     }
     try:
         async with httpx.AsyncClient(timeout=8) as client:
@@ -342,39 +342,42 @@ async def autocomplete(q: str = ""):
                 params=params, headers={"User-Agent": "KilometerTracker/1.0"},
             )
         results = r.json()
-
-        # Razvrsti: najprej naslovi in mesta, potem ostalo
-        def sort_key(item):
-            cls = item.get("class", "")
-            typ = item.get("type", "")
-            if cls == "highway" or typ in ("house", "residential"):
-                return 0
-            if cls == "place" and typ in ("city", "town", "village", "suburb", "municipality"):
-                return 1
-            if cls == "amenity" or cls == "shop" or cls == "tourism":
-                return 3
-            return 2
-        results.sort(key=sort_key)
+        # Ohrani Nominatim-ovo razvrščanje po pomembnosti (ne sortiramo sami)
 
         suggestions = []
         seen = set()
         for item in results:
             a = item.get("address", {})
+            cls = item.get("class", "")
+            names = item.get("namedetails", {})
+
             road = a.get("road") or a.get("pedestrian") or a.get("path") or ""
             hnum = a.get("house_number") or ""
             city = a.get("city") or a.get("town") or a.get("village") or a.get("municipality") or ""
             postcode = a.get("postcode") or ""
             country = a.get("country") or ""
             lat, lon = float(item["lat"]), float(item["lon"])
-            if road:
+
+            # Podjetja / POI — uporabi ime objekta
+            poi_name = names.get("name") or names.get("name:sl") or ""
+            is_poi = cls in ("amenity", "shop", "tourism", "office", "craft", "healthcare", "leisure")
+
+            if is_poi and poi_name:
+                main = poi_name
+                parts = [p for p in [road, city] if p]
+                sub = ", ".join(parts) if parts else ", ".join(s for s in [postcode, country] if s)
+            elif road:
                 main = f"{road} {hnum}".strip() if hnum else road
                 if city:
                     main += f", {city}"
+                sub = ", ".join(s for s in [postcode, country] if s)
             elif city:
                 main = city
+                sub = ", ".join(s for s in [postcode, country] if s)
             else:
                 main = item.get("display_name", "").split(",")[0].strip()
-            sub = ", ".join(s for s in [postcode, country] if s)
+                sub = ""
+
             key = main.lower()
             if key in seen:
                 continue
