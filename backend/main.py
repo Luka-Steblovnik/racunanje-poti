@@ -145,7 +145,9 @@ async def calc_route(origin, destination, origin_lat=None, origin_lon=None, dest
     if data.get("code") != "Ok":
         raise ValueError("OSRM: pot ni bila najdena.")
     route = data["routes"][0]
-    return round(route["distance"] / 1000 * 1.02, 1), fmt_duration(int(route["duration"])), "osrm"
+    raw_km = route["distance"] / 1000
+    multiplier = 1.01 if raw_km > 100 else 1.02
+    return round(raw_km * multiplier, 1), fmt_duration(int(route["duration"])), "osrm"
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
