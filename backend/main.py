@@ -135,29 +135,9 @@ async def geocode_nominatim(address):
     return float(results[0]["lat"]), float(results[0]["lon"])
 
 
-async def calc_graphhopper(lat1, lon1, lat2, lon2):
-    api_key = os.getenv("GRAPHHOPPER_API_KEY")
-    if not api_key:
-        raise ValueError("GRAPHHOPPER_API_KEY ni nastavljen.")
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(
-            "https://graphhopper.com/api/1/route",
-            params={
-                "point": [f"{lat1},{lon1}", f"{lat2},{lon2}"],
-                "vehicle": "car",
-                "key": api_key,
-                "type": "json",
-            },
-        )
-    data = r.json()
-    if "paths" not in data or not data["paths"]:
-        msg = data.get("message", "Pot ni bila najdena.")
-        raise ValueError(f"GraphHopper: {msg}")
-    path = data["paths"][0]
-    return round(path["distance"] / 1000, 1), fmt_duration(int(path["time"] / 1000))
-
-
-async def calc_osrm(lat1, lon1, lat2, lon2):
+async def calc_route(origin, destination, origin_lat=None, origin_lon=None, dest_lat=None, dest_lon=None):
+    lat1, lon1 = (origin_lat, origin_lon) if origin_lat is not None else await geocode_nominatim(origin)
+    lat2, lon2 = (dest_lat, dest_lon) if dest_lat is not None else await geocode_nominatim(destination)
     url = f"http://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}"
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(url, params={"overview": "false"})
@@ -165,15 +145,7 @@ async def calc_osrm(lat1, lon1, lat2, lon2):
     if data.get("code") != "Ok":
         raise ValueError("OSRM: pot ni bila najdena.")
     route = data["routes"][0]
-    return round(route["distance"] / 1000, 1), fmt_duration(int(route["duration"]))
-
-
-async def calc_route(origin, destination, origin_lat=None, origin_lon=None, dest_lat=None, dest_lon=None):
-    lat1, lon1 = (origin_lat, origin_lon) if origin_lat is not None else await geocode_nominatim(origin)
-    lat2, lon2 = (dest_lat, dest_lon) if dest_lat is not None else await geocode_nominatim(destination)
-    if os.getenv("GRAPHHOPPER_API_KEY"):
-        return await calc_graphhopper(lat1, lon1, lat2, lon2), "graphhopper"
-    return await calc_osrm(lat1, lon1, lat2, lon2), "osrm"
+    return round(route["distance"] / 1000, 1), fmt_duration(int(route["duration"])), "osrm"
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -245,7 +217,7 @@ async def calculate(req: CalculateRequest, user=Depends(get_current_user)):
     if not req.origin.strip() or not req.destination.strip():
         raise HTTPException(400, "Izhodišče in cilj ne smeta biti prazna.")
     try:
-        (km, dur), source = await calc_route(
+        km, dur, source = await calc_route(
             req.origin.strip(), req.destination.strip(),
             req.origin_lat, req.origin_lon, req.dest_lat, req.dest_lon,
         )
