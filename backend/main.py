@@ -329,9 +329,11 @@ async def autocomplete(q: str = ""):
     if not q or len(q.strip()) < 2:
         return {"suggestions": []}
     params = {
-        "q": q, "format": "json", "limit": 7,
+        "q": q, "format": "json", "limit": 10,
         "addressdetails": 1, "countrycodes": "si,hr,at,it",
         "accept-language": "sl,en",
+        "viewbox": "12.0,47.5,17.5,45.0",  # SI/HR/AT/IT območje
+        "bounded": 0,  # preferira viewbox, ne omejuje nanj
     }
     try:
         async with httpx.AsyncClient(timeout=8) as client:
@@ -340,6 +342,20 @@ async def autocomplete(q: str = ""):
                 params=params, headers={"User-Agent": "KilometerTracker/1.0"},
             )
         results = r.json()
+
+        # Razvrsti: najprej naslovi in mesta, potem ostalo
+        def sort_key(item):
+            cls = item.get("class", "")
+            typ = item.get("type", "")
+            if cls == "highway" or typ in ("house", "residential"):
+                return 0
+            if cls == "place" and typ in ("city", "town", "village", "suburb", "municipality"):
+                return 1
+            if cls == "amenity" or cls == "shop" or cls == "tourism":
+                return 3
+            return 2
+        results.sort(key=sort_key)
+
         suggestions = []
         seen = set()
         for item in results:
