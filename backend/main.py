@@ -272,6 +272,32 @@ async def get_routes(user=Depends(get_current_user)):
         conn.close()
 
 
+@app.delete("/routes/{route_id}")
+async def delete_route(route_id: int, user=Depends(get_current_user)):
+    conn = get_db()
+    try:
+        result = conn.execute(
+            "DELETE FROM routes WHERE id = ? AND user_id = ?", (route_id, user["id"])
+        )
+        conn.commit()
+        if result.rowcount == 0:
+            raise HTTPException(404, "Pot ni najdena")
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+@app.delete("/routes")
+async def delete_all_routes(user=Depends(get_current_user)):
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM routes WHERE user_id = ?", (user["id"],))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
 @app.get("/routes/export")
 async def export_xlsx(user=Depends(get_current_user)):
     import openpyxl

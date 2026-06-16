@@ -372,6 +372,31 @@ body {
 }
 .btn-export:hover { background: rgba(37,99,235,.06); }
 
+.btn-delete-all {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  padding: 6px 14px;
+  font-size: .85rem;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s;
+}
+.btn-delete-all:hover { background: rgba(220,38,38,.07); }
+
+.btn-del-row {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: .85rem;
+  padding: 3px 7px;
+  border-radius: 6px;
+  transition: background .12s, color .12s;
+}
+.btn-del-row:hover { background: #fef2f2; color: var(--danger); }
+
 /* ============================================================
    Result card
    ============================================================ */

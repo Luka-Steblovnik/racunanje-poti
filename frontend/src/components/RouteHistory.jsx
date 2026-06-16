@@ -1,10 +1,22 @@
-import { exportXlsx } from "../api.js";
+import { exportXlsx, deleteRoute, deleteAllRoutes } from "../api.js";
 
-export default function RouteHistory({ routes, totalKm, loading }) {
+export default function RouteHistory({ routes, totalKm, loading, onRefresh }) {
   if (loading) return <p className="history-loading">Nalagam zgodovino…</p>;
 
   async function handleExport() {
     try { await exportXlsx(); }
+    catch (e) { alert(e.message); }
+  }
+
+  async function handleDelete(r) {
+    if (!confirm(`Izbriši pot:\n${r.origin} → ${r.destination} (${r.distance_km} km)?`)) return;
+    try { await deleteRoute(r.id); await onRefresh(); }
+    catch (e) { alert(e.message); }
+  }
+
+  async function handleDeleteAll() {
+    if (!confirm(`Izbriši VSE zabeležene poti (${routes.length})?\nTega ni mogoče razveljaviti.`)) return;
+    try { await deleteAllRoutes(); await onRefresh(); }
     catch (e) { alert(e.message); }
   }
 
@@ -15,9 +27,10 @@ export default function RouteHistory({ routes, totalKm, loading }) {
         <div className="history-summary">
           <span className="total-km">Skupaj: <strong>{totalKm} km</strong></span>
           {routes.length > 0 && (
-            <button className="btn btn-export" onClick={handleExport}>
-              ↓ Izvozi Excel
-            </button>
+            <>
+              <button className="btn btn-export" onClick={handleExport}>↓ Izvozi Excel</button>
+              <button className="btn btn-delete-all" onClick={handleDeleteAll}>🗑 Izbriši vse</button>
+            </>
           )}
         </div>
       </div>
@@ -32,16 +45,22 @@ export default function RouteHistory({ routes, totalKm, loading }) {
                 <th>Datum</th>
                 <th>Od</th>
                 <th>Kam</th>
+                <th>Namen</th>
                 <th>km</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {[...routes].reverse().map((r, i) => (
-                <tr key={i}>
+              {[...routes].reverse().map((r) => (
+                <tr key={r.id}>
                   <td className="td-date">{formatDt(r.datetime)}</td>
                   <td>{r.origin}</td>
                   <td>{r.destination}</td>
+                  <td>{r.namen || "—"}</td>
                   <td className="td-num">{r.distance_km}</td>
+                  <td>
+                    <button className="btn-del-row" onClick={() => handleDelete(r)} title="Izbriši">✕</button>
+                  </td>
                 </tr>
               ))}
             </tbody>

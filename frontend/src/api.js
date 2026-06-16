@@ -91,6 +91,14 @@ export async function fetchRoutes() {
   return request("/routes");
 }
 
+export async function deleteRoute(id) {
+  return request(`/routes/${id}`, { method: "DELETE" });
+}
+
+export async function deleteAllRoutes() {
+  return request("/routes", { method: "DELETE" });
+}
+
 export async function exportXlsx() {
   const token = getToken();
   const res = await fetch(`${BASE}/routes/export`, {

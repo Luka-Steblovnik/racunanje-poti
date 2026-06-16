@@ -125,7 +125,7 @@ export default function App() {
           />
         </section>
 
-        <RouteHistory routes={routes} totalKm={totalKm} loading={histLoading} />
+        <RouteHistory routes={routes} totalKm={totalKm} loading={histLoading} onRefresh={loadHistory} />
       </main>
 
       <footer className="app-footer">
