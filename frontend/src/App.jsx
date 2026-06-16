@@ -79,6 +79,7 @@ export default function App() {
       });
       setSaved(true);
       await loadHistory();
+      if (result.maps_url) window.open(result.maps_url, "_blank", "noopener,noreferrer");
     } catch (e) {
       setCalcError(`Napaka pri shranjevanju: ${e.message}`);
     } finally {
