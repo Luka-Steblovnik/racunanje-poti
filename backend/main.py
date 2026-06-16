@@ -313,6 +313,13 @@ async def export_xlsx(user=Depends(get_current_user)):
     )
 
 
+# ── Health check ─────────────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health():
+    return {"ok": True}
+
+
 # ── Autocomplete (no auth required) ──────────────────────────────────────────
 
 @app.get("/autocomplete")
