@@ -3,7 +3,6 @@ Kilometer Tracker — FastAPI backend
 """
 
 import os
-import csv
 import io
 import json
 from datetime import datetime
@@ -271,16 +270,50 @@ async def get_place(place_id: str):
 
 
 @app.get("/routes/export")
-async def export_csv():
+async def export_xlsx():
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
     routes = load_routes()
-    output = io.StringIO()
-    fields = ["datetime", "origin", "destination", "distance_km", "duration", "source"]
-    writer = csv.DictWriter(output, fieldnames=fields)
-    writer.writeheader()
-    writer.writerows(routes)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Prevozeni kilometri"
+
+    # Header
+    headers = ["Datum", "Od", "Kam", "Kilometri"]
+    ws.append(headers)
+    header_fill = PatternFill("solid", fgColor="2563EB")
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    # Data rows
+    for r in routes:
+        date_str = r["datetime"][:10]
+        ws.append([date_str, r["origin"], r["destination"], r["distance_km"]])
+
+    # Total row
+    if routes:
+        total = round(sum(r["distance_km"] for r in routes), 1)
+        ws.append([])
+        ws.append(["SKUPAJ", "", "", total])
+        last = ws.max_row
+        for cell in ws[last]:
+            cell.font = Font(bold=True)
+        ws.cell(last, 4).number_format = "0.0"
+
+    # Column widths
+    ws.column_dimensions["A"].width = 13
+    ws.column_dimensions["B"].width = 32
+    ws.column_dimensions["C"].width = 32
+    ws.column_dimensions["D"].width = 13
+
+    output = io.BytesIO()
+    wb.save(output)
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": "attachment; filename=prevozeni_kilometri.csv"},
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=prevozeni_kilometri.xlsx"},
     )

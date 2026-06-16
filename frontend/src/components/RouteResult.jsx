@@ -18,11 +18,6 @@ export default function RouteResult({ result, origin, destination, onSave, savin
           <span className="stat-value">{result.distance_km} km</span>
           <span className="stat-label">razdalja</span>
         </div>
-        <div className="stat-divider" />
-        <div className="stat">
-          <span className="stat-value">{result.duration}</span>
-          <span className="stat-label">čas vožnje</span>
-        </div>
       </div>
 
       <a

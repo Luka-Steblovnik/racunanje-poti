@@ -13,9 +13,9 @@ export default function RouteHistory({ routes, totalKm, loading }) {
             <a
               className="btn btn-export"
               href={exportCsvUrl()}
-              download="prevozeni_kilometri.csv"
+              download="prevozeni_kilometri.xlsx"
             >
-              ↓ Izvozi CSV
+              ↓ Izvozi Excel
             </a>
           )}
         </div>
@@ -28,12 +28,10 @@ export default function RouteHistory({ routes, totalKm, loading }) {
           <table className="history-table">
             <thead>
               <tr>
-                <th>Datum / ura</th>
+                <th>Datum</th>
                 <th>Od</th>
                 <th>Kam</th>
                 <th>km</th>
-                <th>Čas</th>
-                <th>Vir</th>
               </tr>
             </thead>
             <tbody>
@@ -43,12 +41,6 @@ export default function RouteHistory({ routes, totalKm, loading }) {
                   <td>{r.origin}</td>
                   <td>{r.destination}</td>
                   <td className="td-num">{r.distance_km}</td>
-                  <td className="td-dur">{r.duration}</td>
-                  <td>
-                    <span className={`badge-source badge-${r.source}`}>
-                      {r.source === "google" ? "Google" : "OSRM"}
-                    </span>
-                  </td>
                 </tr>
               ))}
             </tbody>
