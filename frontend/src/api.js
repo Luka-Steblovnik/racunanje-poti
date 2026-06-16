@@ -99,9 +99,13 @@ export async function deleteAllRoutes() {
   return request("/routes", { method: "DELETE" });
 }
 
-export async function exportXlsx() {
+export async function exportXlsx(fromDate = "", toDate = "") {
   const token = getToken();
-  const res = await fetch(`${BASE}/routes/export`, {
+  const params = new URLSearchParams();
+  if (fromDate) params.set("from_date", fromDate);
+  if (toDate) params.set("to_date", toDate);
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await fetch(`${BASE}/routes/export${qs}`, {
     headers: { "Authorization": `Bearer ${token}` },
   });
   if (!res.ok) throw new Error("Napaka pri izvozu");

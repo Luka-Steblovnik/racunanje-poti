@@ -306,15 +306,26 @@ async def delete_all_routes(user=Depends(get_current_user)):
 
 
 @app.get("/routes/export")
-async def export_xlsx(user=Depends(get_current_user)):
+async def export_xlsx(
+    user=Depends(get_current_user),
+    from_date: str = None,
+    to_date: str = None,
+):
     import openpyxl
     from openpyxl.styles import Font, Alignment, PatternFill
 
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM routes WHERE user_id = ? ORDER BY datetime ASC", (user["id"],)
-        ).fetchall()
+        query = "SELECT * FROM routes WHERE user_id = ?"
+        params = [user["id"]]
+        if from_date:
+            query += " AND datetime >= ?"
+            params.append(from_date)
+        if to_date:
+            query += " AND datetime <= ?"
+            params.append(to_date + "T23:59:59")
+        query += " ORDER BY datetime ASC"
+        rows = conn.execute(query, params).fetchall()
         routes = [dict(r) for r in rows]
     finally:
         conn.close()
@@ -330,7 +341,7 @@ async def export_xlsx(user=Depends(get_current_user)):
     center = Alignment(horizontal="center")
     bold = Font(bold=True)
 
-    headers = ["Dan", "Datum", "Destinacija", "Namen", "Odhod", "Prihod", "Začetni KM", "Končni KM", "Km"]
+    headers = ["Dan", "Datum", "Destinacija", "Namen", "Odhod", "Prihod", "Začetni KM", "Končni KM", "Km", "Dodatni stroški"]
     ws.append(headers)
     for cell in ws[1]:
         cell.font = header_font
@@ -350,12 +361,13 @@ async def export_xlsx(user=Depends(get_current_user)):
             None,                    # G: Začetni KM — ročni vnos
             f"=G{row}+I{row}",       # H: Končni KM = začetni + km
             r["distance_km"],        # I: Km
+            None,                    # J: Dodatni stroški — ročni vnos
         ])
 
     if routes:
         total = round(sum(r["distance_km"] for r in routes), 1)
         ws.append([])
-        ws.append(["", "", "", "", "", "", "", "SKUPAJ KM", total])
+        ws.append(["", "", "", "", "", "", "", "SKUPAJ KM", total, ""])
         for cell in ws[ws.max_row]:
             cell.font = bold
         ws[f"I{ws.max_row}"].font = Font(bold=True, color="2563EB")
@@ -369,6 +381,7 @@ async def export_xlsx(user=Depends(get_current_user)):
     ws.column_dimensions["G"].width = 12
     ws.column_dimensions["H"].width = 12
     ws.column_dimensions["I"].width = 8
+    ws.column_dimensions["J"].width = 15
 
     output = io.BytesIO()
     wb.save(output)

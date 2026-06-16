@@ -516,6 +516,25 @@ body {
 .total-km strong { color: var(--text); font-size: 1.05rem; }
 
 .history-empty { color: var(--text-muted); font-size: .9rem; }
+
+.export-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.export-row label { font-size: .82rem; font-weight: 600; color: var(--text-muted); }
+.export-row input[type="date"] {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: .9rem;
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+}
+.export-row input[type="date"]:focus { border-color: var(--primary); }
 .history-loading { color: var(--text-muted); font-size: .9rem; }
 
 .table-wrapper { overflow-x: auto; }
