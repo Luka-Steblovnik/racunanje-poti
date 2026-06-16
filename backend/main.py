@@ -330,35 +330,45 @@ async def export_xlsx(user=Depends(get_current_user)):
     center = Alignment(horizontal="center")
     bold = Font(bold=True)
 
-    headers = ["Dan", "Datum", "Destinacija", "Namen", "Odhod", "Prihod", "Km"]
+    headers = ["Dan", "Datum", "Destinacija", "Namen", "Odhod", "Prihod", "Začetni KM", "Končni KM", "Km"]
     ws.append(headers)
     for cell in ws[1]:
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = center
 
-    for r in routes:
+    data_start = 2
+    for i, r in enumerate(routes):
+        row = data_start + i
         dt = datetime.fromisoformat(r["datetime"])
         dan = DAYS_SL[dt.weekday()]
         datum = dt.strftime("%d.%m.%Y")
         destinacija = f"{r['origin']} → {r['destination']}"
-        ws.append([dan, datum, destinacija, r.get("namen", ""), r.get("odhod", ""), r.get("prihod", ""), r["distance_km"]])
+        ws.append([
+            dan, datum, destinacija,
+            r.get("namen", ""), r.get("odhod", ""), r.get("prihod", ""),
+            None,                    # G: Začetni KM — ročni vnos
+            f"=G{row}+I{row}",       # H: Končni KM = začetni + km
+            r["distance_km"],        # I: Km
+        ])
 
     if routes:
         total = round(sum(r["distance_km"] for r in routes), 1)
         ws.append([])
-        ws.append(["", "", "", "", "", "SKUPAJ KM", total])
+        ws.append(["", "", "", "", "", "", "", "SKUPAJ KM", total])
         for cell in ws[ws.max_row]:
             cell.font = bold
-        ws[f"G{ws.max_row}"].font = Font(bold=True, color="2563EB")
+        ws[f"I{ws.max_row}"].font = Font(bold=True, color="2563EB")
 
     ws.column_dimensions["A"].width = 6
     ws.column_dimensions["B"].width = 13
-    ws.column_dimensions["C"].width = 38
+    ws.column_dimensions["C"].width = 36
     ws.column_dimensions["D"].width = 20
     ws.column_dimensions["E"].width = 9
     ws.column_dimensions["F"].width = 9
-    ws.column_dimensions["G"].width = 10
+    ws.column_dimensions["G"].width = 12
+    ws.column_dimensions["H"].width = 12
+    ws.column_dimensions["I"].width = 8
 
     output = io.BytesIO()
     wb.save(output)
