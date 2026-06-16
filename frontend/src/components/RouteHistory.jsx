@@ -1,7 +1,12 @@
-import { exportCsvUrl } from "../api.js";
+import { exportXlsx } from "../api.js";
 
 export default function RouteHistory({ routes, totalKm, loading }) {
   if (loading) return <p className="history-loading">Nalagam zgodovino…</p>;
+
+  async function handleExport() {
+    try { await exportXlsx(); }
+    catch (e) { alert(e.message); }
+  }
 
   return (
     <section className="history-section">
@@ -10,13 +15,9 @@ export default function RouteHistory({ routes, totalKm, loading }) {
         <div className="history-summary">
           <span className="total-km">Skupaj: <strong>{totalKm} km</strong></span>
           {routes.length > 0 && (
-            <a
-              className="btn btn-export"
-              href={exportCsvUrl()}
-              download="prevozeni_kilometri.xlsx"
-            >
+            <button className="btn btn-export" onClick={handleExport}>
               ↓ Izvozi Excel
-            </a>
+            </button>
           )}
         </div>
       </div>
@@ -54,10 +55,7 @@ export default function RouteHistory({ routes, totalKm, loading }) {
 function formatDt(iso) {
   const d = new Date(iso);
   return d.toLocaleString("sl-SI", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
   });
 }

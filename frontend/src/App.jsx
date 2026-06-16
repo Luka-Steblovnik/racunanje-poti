@@ -2,24 +2,26 @@ import { useState, useEffect, useCallback } from "react";
 import RouteForm from "./components/RouteForm.jsx";
 import RouteResult from "./components/RouteResult.jsx";
 import RouteHistory from "./components/RouteHistory.jsx";
-import { calculateRoute, saveRoute, fetchRoutes } from "./api.js";
+import AuthForm from "./components/AuthForm.jsx";
+import { calculateRoute, saveRoute, fetchRoutes, logout, getStoredUser } from "./api.js";
 
 export default function App() {
-  // Form state
-  const [origin, setOrigin] = useState("");
+  const [user, setUser] = useState(() => getStoredUser());
+
+  const [origin,      setOrigin]      = useState("");
   const [destination, setDestination] = useState("");
   const [calculating, setCalculating] = useState(false);
-  const [calcError, setCalcError] = useState(null);
-  const [result, setResult] = useState(null);
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [calcError,   setCalcError]   = useState(null);
+  const [result,      setResult]      = useState(null);
+  const [saved,       setSaved]       = useState(false);
+  const [saving,      setSaving]      = useState(false);
 
-  // History state
-  const [routes, setRoutes] = useState([]);
-  const [totalKm, setTotalKm] = useState(0);
-  const [histLoading, setHistLoading] = useState(true);
+  const [routes,      setRoutes]      = useState([]);
+  const [totalKm,     setTotalKm]     = useState(0);
+  const [histLoading, setHistLoading] = useState(false);
 
   const loadHistory = useCallback(async () => {
+    setHistLoading(true);
     try {
       const data = await fetchRoutes();
       setRoutes(data.routes);
@@ -32,8 +34,21 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+    if (user) loadHistory();
+  }, [user, loadHistory]);
+
+  function handleAuth(username) {
+    setUser({ username, token: localStorage.getItem("km_token") });
+  }
+
+  function handleLogout() {
+    logout();
+    setUser(null);
+    setRoutes([]);
+    setTotalKm(0);
+    setResult(null);
+    setCalcError(null);
+  }
 
   async function handleCalculate(o, d, originCoords, destCoords) {
     setOrigin(o);
@@ -57,8 +72,7 @@ export default function App() {
     setSaving(true);
     try {
       await saveRoute({
-        origin,
-        destination,
+        origin, destination,
         distance_km: result.distance_km,
         duration: result.duration,
         source: result.source,
@@ -72,13 +86,21 @@ export default function App() {
     }
   }
 
+  if (!user) {
+    return <AuthForm onAuth={handleAuth} />;
+  }
+
   return (
     <div className="app">
       <header className="app-header">
         <span className="app-icon">🚗</span>
-        <div>
+        <div style={{ flex: 1 }}>
           <h1>Beležnik kilometrov</h1>
           <p className="app-subtitle">Izračunaj in zabeleži prevožene poti</p>
+        </div>
+        <div className="user-info">
+          <span className="user-name">👤 {user.username}</span>
+          <button className="btn-logout" onClick={handleLogout}>Odjava</button>
         </div>
       </header>
 
@@ -86,13 +108,11 @@ export default function App() {
         <section className="card">
           <h2>Nova pot</h2>
           <RouteForm onCalculate={handleCalculate} loading={calculating} />
-
           {calcError && (
             <div className="error-box" role="alert">
               <strong>Napaka:</strong> {calcError}
             </div>
           )}
-
           <RouteResult
             result={result}
             origin={origin}
@@ -107,9 +127,7 @@ export default function App() {
       </main>
 
       <footer className="app-footer">
-        Vir razdalje: {routes.length > 0 && routes.some(r => r.source === "osrm")
-          ? "OSRM / OpenStreetMap (fallback — brez Google Maps API ključa)"
-          : "Google Maps ali OSRM"}
+        Vir razdalje: OSRM / OpenStreetMap
       </footer>
     </div>
   );
