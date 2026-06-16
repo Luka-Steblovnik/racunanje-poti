@@ -72,9 +72,15 @@ def init_db():
             distance_km REAL NOT NULL,
             duration    TEXT NOT NULL,
             source      TEXT NOT NULL,
+            namen       TEXT NOT NULL DEFAULT '',
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
+    # Migracija za obstoječe baze brez stolpca namen
+    try:
+        conn.execute("ALTER TABLE routes ADD COLUMN namen TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -172,6 +178,7 @@ class SaveRequest(BaseModel):
     distance_km: float
     duration: str
     source: str
+    namen: str = ""
 
 
 # ── Auth endpoints ────────────────────────────────────────────────────────────
@@ -242,9 +249,9 @@ async def save_route(req: SaveRequest, user=Depends(get_current_user)):
     conn = get_db()
     try:
         conn.execute(
-            "INSERT INTO routes (user_id, datetime, origin, destination, distance_km, duration, source) VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO routes (user_id, datetime, origin, destination, distance_km, duration, source, namen) VALUES (?,?,?,?,?,?,?,?)",
             (user["id"], datetime.now().isoformat(timespec="seconds"),
-             req.origin, req.destination, req.distance_km, req.duration, req.source),
+             req.origin, req.destination, req.distance_km, req.duration, req.source, req.namen),
         )
         conn.commit()
     finally:
@@ -279,31 +286,45 @@ async def export_xlsx(user=Depends(get_current_user)):
     finally:
         conn.close()
 
+    DAYS_SL = ["PON", "TOR", "SRE", "ČET", "PET", "SOB", "NED"]
+
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Prevozeni kilometri"
+    ws.title = "Potni nalogi"
 
-    ws.append(["Datum", "Od", "Kam", "Kilometri"])
-    fill = PatternFill("solid", fgColor="2563EB")
+    header_fill = PatternFill("solid", fgColor="2563EB")
+    header_font = Font(bold=True, color="FFFFFF")
+    center = Alignment(horizontal="center")
+    bold = Font(bold=True)
+
+    headers = ["Dan", "Datum", "Destinacija", "Namen", "Km"]
+    ws.append(headers)
     for cell in ws[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = fill
-        cell.alignment = Alignment(horizontal="center")
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center
 
     for r in routes:
-        ws.append([r["datetime"][:10], r["origin"], r["destination"], r["distance_km"]])
+        dt = datetime.fromisoformat(r["datetime"])
+        dan = DAYS_SL[dt.weekday()]
+        datum = dt.strftime("%d.%m.%Y")
+        destinacija = f"{r['origin']} → {r['destination']}"
+        ws.append([dan, datum, destinacija, r.get("namen", ""), r["distance_km"]])
 
     if routes:
         total = round(sum(r["distance_km"] for r in routes), 1)
         ws.append([])
-        ws.append(["SKUPAJ", "", "", total])
+        last = ws.max_row + 1
+        ws.append(["", "", "", "SKUPAJ KM", total])
         for cell in ws[ws.max_row]:
-            cell.font = Font(bold=True)
+            cell.font = bold
+        ws[f"E{ws.max_row}"].font = Font(bold=True, color="2563EB")
 
-    ws.column_dimensions["A"].width = 13
-    ws.column_dimensions["B"].width = 32
-    ws.column_dimensions["C"].width = 32
-    ws.column_dimensions["D"].width = 13
+    ws.column_dimensions["A"].width = 6
+    ws.column_dimensions["B"].width = 13
+    ws.column_dimensions["C"].width = 40
+    ws.column_dimensions["D"].width = 22
+    ws.column_dimensions["E"].width = 10
 
     output = io.BytesIO()
     wb.save(output)

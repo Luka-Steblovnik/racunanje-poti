@@ -427,7 +427,15 @@ body {
 }
 .maps-link:hover { text-decoration: underline; }
 
-.result-actions { display: flex; align-items: center; }
+.result-actions { display: flex; align-items: flex-start; }
+
+.namen-wrap { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.namen-field { display: flex; flex-direction: column; gap: 5px; }
+.namen-field label { font-size: .82rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.namen-field input { padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; color: var(--text); background: var(--surface); outline: none; transition: border-color .15s, box-shadow .15s; max-width: 360px; }
+.namen-field input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+.namen-field input.namen-error-input { border-color: var(--danger); }
+.namen-error-msg { font-size: .82rem; color: var(--danger); }
 
 .saved-notice {
   color: var(--confirm);
